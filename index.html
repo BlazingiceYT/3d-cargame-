@@ -461,8 +461,8 @@ function update(dt) {
   }
 
   // ── Steering ──
-  if (keys.left)  steerAngle = Math.max(steerAngle - STEER_SPEED * dt, -MAX_STEER);
-  else if (keys.right) steerAngle = Math.min(steerAngle + STEER_SPEED * dt, MAX_STEER);
+  if (keys.left)  steerAngle = Math.min(steerAngle + STEER_SPEED * dt, MAX_STEER);
+  else if (keys.right) steerAngle = Math.max(steerAngle - STEER_SPEED * dt, -MAX_STEER);
   else {
     // self-centering
     if (steerAngle > 0) steerAngle = Math.max(0, steerAngle - STEER_SPEED * 2 * dt);

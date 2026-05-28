@@ -185,6 +185,7 @@
 
 <!-- Three.js -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 
 <script>
 // ─────────────────────────────────────────────
@@ -314,76 +315,62 @@ for (let z = 0; z < 300; z += 12) {
 }
 
 // ─────────────────────────────────────────────
-// CAR
+// CAR (GLB Model)
 // ─────────────────────────────────────────────
 const carGroup = new THREE.Group();
-
-// Body
-const bodyMat = new THREE.MeshPhongMaterial({
-  color: 0xff2244,
-  shininess: 120,
-  specular: 0xffffff
-});
-const body = new THREE.Mesh(new THREE.BoxGeometry(2, 0.65, 4.2), bodyMat);
-body.position.y = 0.6;
-body.castShadow = true;
-carGroup.add(body);
-
-// Cabin
-const cabinMat = new THREE.MeshPhongMaterial({ color: 0x223344, shininess: 80 });
-const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.55, 2.2), cabinMat);
-cabin.position.set(0, 1.17, -0.1);
-cabin.castShadow = true;
-carGroup.add(cabin);
-
-// Wheels
-const wheelMat = new THREE.MeshPhongMaterial({ color: 0x111111 });
-const rimMat   = new THREE.MeshPhongMaterial({ color: 0xcccccc, shininess: 200 });
-const wheelPositions = [
-  [-1.1, 0.35, 1.3],
-  [ 1.1, 0.35, 1.3],
-  [-1.1, 0.35,-1.3],
-  [ 1.1, 0.35,-1.3],
-];
-
-const wheels = [];
-wheelPositions.forEach(pos => {
-  const wg = new THREE.Group();
-  const tyre = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.3, 16), wheelMat);
-  tyre.rotation.z = Math.PI / 2;
-  tyre.castShadow = true;
-  wg.add(tyre);
-  const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.32, 8), rimMat);
-  rim.rotation.z = Math.PI / 2;
-  wg.add(rim);
-  wg.position.set(...pos);
-  carGroup.add(wg);
-  wheels.push(wg);
-});
-
-// Headlights
-const headlightMat = new THREE.MeshPhongMaterial({ color: 0xffffee, emissive: 0xffff88, emissiveIntensity: 1 });
-[-0.7, 0.7].forEach(x => {
-  const hl = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.1), headlightMat);
-  hl.position.set(x, 0.65, 2.1);
-  carGroup.add(hl);
-});
-
-// Headlight point lights
-const headlightL = new THREE.SpotLight(0xffffff, 1.5, 40, Math.PI / 6, 0.4);
-headlightL.position.set(-0.7, 0.8, 2.2);
-headlightL.target.position.set(-0.5, 0, 12);
-carGroup.add(headlightL);
-carGroup.add(headlightL.target);
-
-const headlightR = new THREE.SpotLight(0xffffff, 1.5, 40, Math.PI / 6, 0.4);
-headlightR.position.set(0.7, 0.8, 2.2);
-headlightR.target.position.set(0.5, 0, 12);
-carGroup.add(headlightR);
-carGroup.add(headlightR.target);
-
 carGroup.position.set(0, 0, 10);
 scene.add(carGroup);
+
+// Fallback box car (shown while GLB loads)
+const fallbackCar = new THREE.Mesh(
+  new THREE.BoxGeometry(2, 1, 4),
+  new THREE.MeshPhongMaterial({ color: 0xff2244 })
+);
+fallbackCar.position.y = 0.8;
+carGroup.add(fallbackCar);
+
+// Load the GLB
+const loader = new THREE.GLTFLoader();
+loader.load(
+  'CL1M02.glb',
+  (gltf) => {
+    // Remove fallback box
+    carGroup.remove(fallbackCar);
+
+    const model = gltf.scene;
+
+    // Auto-scale: fit model into roughly a 4-unit long car
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const scale = 4 / maxDim;
+    model.scale.setScalar(scale);
+
+    // Sit model on the ground
+    box.setFromObject(model);
+    const minY = box.min.y;
+    model.position.y = -minY;
+
+    // Enable shadows on all meshes
+    model.traverse(child => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    carGroup.add(model);
+    console.log('Car model loaded!');
+  },
+  (progress) => {
+    const pct = Math.round((progress.loaded / progress.total) * 100);
+    console.log('Loading car: ' + pct + '%');
+  },
+  (error) => {
+    console.warn('Could not load GLB, using fallback box car.', error);
+  }
+);
 
 // ─────────────────────────────────────────────
 // INPUT STATE
@@ -433,9 +420,9 @@ const MAX_SPEED    = 28;
 const ACCELERATION = 12;
 const BRAKING      = 22;
 const FRICTION     = 6;
-const STEER_SPEED  = 1.6;
-const MAX_STEER    = 0.45;
-const TURN_FACTOR  = 0.018;
+const STEER_SPEED  = 0.9;
+const MAX_STEER    = 0.22;
+const TURN_FACTOR  = 0.012;
 const ROAD_LIMIT   = 6.5;
 
 // ─────────────────────────────────────────────
@@ -485,14 +472,6 @@ function update(dt) {
   // ── Update car mesh ──
   carGroup.position.set(carX, 0, carZ);
   carGroup.rotation.y = carAngle;
-
-  // Wheel spin
-  const spinSpeed = speed * dt * 2.5;
-  wheels.forEach((w, i) => {
-    w.rotation.x += spinSpeed;
-    // front wheel steering visual
-    if (i < 2) w.rotation.y = steerAngle * 0.8;
-  });
 
   // ── Scroll road segments ──
   const segLen = SEGMENT_LENGTH;

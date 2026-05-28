@@ -344,13 +344,18 @@ loader.load(
     const size = new THREE.Vector3();
     box.getSize(size);
     const maxDim = Math.max(size.x, size.y, size.z);
-    const scale = 4 / maxDim;
+    const scale = 8 / maxDim;
     model.scale.setScalar(scale);
 
-    // Sit model on the ground
-    box.setFromObject(model);
-    const minY = box.min.y;
-    model.position.y = -minY;
+    // Centre model horizontally and sit on ground
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    model.position.x = -center.x * scale;
+    model.position.z = -center.z * scale;
+
+    // Sit model on the ground after scaling
+    const box2 = new THREE.Box3().setFromObject(model);
+    model.position.y = -box2.min.y;
 
     // Enable shadows on all meshes
     model.traverse(child => {

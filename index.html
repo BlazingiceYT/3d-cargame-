@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>3D Car Game – Stage 1</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0a0a0f;
+      overflow: hidden;
+      font-family: 'Courier New', monospace;
+      touch-action: none;
+    }
+
+    #gameCanvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* HUD */
+    #hud {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    #speedometer {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #00ffcc;
+      font-size: 13px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      text-shadow: 0 0 12px #00ffcc88;
+      background: rgba(0,0,0,0.4);
+      padding: 8px 20px;
+      border: 1px solid #00ffcc44;
+      border-radius: 4px;
+    }
+
+    #speedVal {
+      font-size: 28px;
+      font-weight: bold;
+      display: block;
+      text-align: center;
+      line-height: 1;
+    }
+
+    /* Touch Controls */
+    #controls {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 220px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      padding: 0 24px 32px;
+      pointer-events: none;
+      z-index: 20;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 12px;
+      pointer-events: all;
+    }
+
+    .ctrl-btn {
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.25);
+      background: rgba(255,255,255,0.08);
+      backdrop-filter: blur(6px);
+      color: #fff;
+      font-size: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.1s, border-color 0.1s;
+      touch-action: none;
+    }
+
+    .ctrl-btn.active,
+    .ctrl-btn:active {
+      background: rgba(0, 255, 204, 0.25);
+      border-color: #00ffcc;
+    }
+
+    #btn-gas  { background: rgba(0,255,100,0.12); border-color: rgba(0,255,100,0.4); }
+    #btn-brake { background: rgba(255,60,60,0.12); border-color: rgba(255,60,60,0.4); }
+    #btn-gas.active   { background: rgba(0,255,100,0.35); border-color: #00ff64; }
+    #btn-brake.active { background: rgba(255,60,60,0.35); border-color: #ff3c3c; }
+
+    /* Loading screen */
+    #loader {
+      position: fixed;
+      inset: 0;
+      background: #0a0a0f;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      transition: opacity 0.6s;
+    }
+
+    #loader h1 {
+      color: #00ffcc;
+      font-size: 28px;
+      letter-spacing: 6px;
+      text-shadow: 0 0 20px #00ffcc;
+      margin-bottom: 8px;
+    }
+
+    #loader p {
+      color: #ffffff55;
+      font-size: 11px;
+      letter-spacing: 3px;
+    }
+
+    .loader-bar {
+      width: 200px;
+      height: 2px;
+      background: #ffffff11;
+      margin-top: 30px;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .loader-fill {
+      height: 100%;
+      background: #00ffcc;
+      width: 0%;
+      animation: loadFill 1.2s ease forwards;
+      box-shadow: 0 0 10px #00ffcc;
+    }
+
+    @keyframes loadFill {
+      to { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loading Screen -->
+<div id="loader">
+  <h1>BLAZINGICE</h1>
+  <p>STAGE 1 · CAR GAME</p>
+  <div class="loader-bar"><div class="loader-fill"></div></div>
+</div>
+
+<!-- Canvas -->
+<canvas id="gameCanvas"></canvas>
+
+<!-- HUD -->
+<div id="speedometer">
+  <span id="speedVal">0</span>
+  KM/H
+</div>
+
+<!-- Touch Controls -->
+<div id="controls">
+  <!-- Left: Steer -->
+  <div class="btn-group">
+    <div class="ctrl-btn" id="btn-left">◀</div>
+    <div class="ctrl-btn" id="btn-right">▶</div>
+  </div>
+
+  <!-- Right: Gas / Brake -->
+  <div class="btn-group">
+    <div class="ctrl-btn" id="btn-brake">⬛</div>
+    <div class="ctrl-btn" id="btn-gas">▲</div>
+  </div>
+</div>
+
+<!-- Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+// ─────────────────────────────────────────────
+// SCENE SETUP
+// ─────────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+scene.fog = new THREE.Fog(0x1a1a2e, 80, 300);
+
+// ─────────────────────────────────────────────
+// CAMERA
+// ─────────────────────────────────────────────
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
+camera.position.set(0, 5, -12);
+camera.lookAt(0, 0, 0);
+
+// ─────────────────────────────────────────────
+// LIGHTING
+// ─────────────────────────────────────────────
+const ambientLight = new THREE.AmbientLight(0x404060, 0.8);
+scene.add(ambientLight);
+
+const sun = new THREE.DirectionalLight(0xffeedd, 2.0);
+sun.position.set(30, 60, 30);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 300;
+sun.shadow.camera.left = -80;
+sun.shadow.camera.right = 80;
+sun.shadow.camera.top = 80;
+sun.shadow.camera.bottom = -80;
+scene.add(sun);
+
+// Rim light (cinematic)
+const rimLight = new THREE.DirectionalLight(0x4488ff, 0.6);
+rimLight.position.set(-20, 10, -20);
+scene.add(rimLight);
+
+// ─────────────────────────────────────────────
+// ROAD (infinite-looking tiled road)
+// ─────────────────────────────────────────────
+const ROAD_WIDTH = 14;
+const SEGMENT_LENGTH = 40;
+const NUM_SEGMENTS = 10;
+const roadSegments = [];
+
+const roadMat = new THREE.MeshLambertMaterial({ color: 0x222228 });
+const lineMat  = new THREE.MeshLambertMaterial({ color: 0xffffff });
+const groundMat = new THREE.MeshLambertMaterial({ color: 0x1a3320 });
+
+for (let i = 0; i < NUM_SEGMENTS; i++) {
+  const group = new THREE.Group();
+
+  // Road slab
+  const road = new THREE.Mesh(
+    new THREE.PlaneGeometry(ROAD_WIDTH, SEGMENT_LENGTH),
+    roadMat
+  );
+  road.rotation.x = -Math.PI / 2;
+  road.receiveShadow = true;
+  group.add(road);
+
+  // Centre dashed line
+  for (let d = 0; d < 4; d++) {
+    const dash = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.3, 3),
+      lineMat
+    );
+    dash.rotation.x = -Math.PI / 2;
+    dash.position.set(0, 0.01, -SEGMENT_LENGTH / 2 + 5 + d * 10);
+    group.add(dash);
+  }
+
+  // Ground on both sides
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(200, SEGMENT_LENGTH),
+    groundMat
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.02;
+  ground.receiveShadow = true;
+  group.add(ground);
+
+  group.position.z = i * SEGMENT_LENGTH;
+  scene.add(group);
+  roadSegments.push(group);
+}
+
+// ─────────────────────────────────────────────
+// TREES (simple but charming)
+// ─────────────────────────────────────────────
+function makeTree(x, z) {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.2, 0.3, 2, 6),
+    new THREE.MeshLambertMaterial({ color: 0x5c3d1e })
+  );
+  trunk.position.y = 1;
+  trunk.castShadow = true;
+  g.add(trunk);
+
+  const canopy = new THREE.Mesh(
+    new THREE.ConeGeometry(1.6, 4, 7),
+    new THREE.MeshLambertMaterial({ color: 0x2d6a4f })
+  );
+  canopy.position.y = 4.5;
+  canopy.castShadow = true;
+  g.add(canopy);
+
+  g.position.set(x, 0, z);
+  return g;
+}
+
+for (let z = 0; z < 300; z += 12) {
+  scene.add(makeTree( -(ROAD_WIDTH / 2 + 3 + Math.random() * 4), z));
+  scene.add(makeTree(   ROAD_WIDTH / 2 + 3 + Math.random() * 4,  z));
+}
+
+// ─────────────────────────────────────────────
+// CAR
+// ─────────────────────────────────────────────
+const carGroup = new THREE.Group();
+
+// Body
+const bodyMat = new THREE.MeshPhongMaterial({
+  color: 0xff2244,
+  shininess: 120,
+  specular: 0xffffff
+});
+const body = new THREE.Mesh(new THREE.BoxGeometry(2, 0.65, 4.2), bodyMat);
+body.position.y = 0.6;
+body.castShadow = true;
+carGroup.add(body);
+
+// Cabin
+const cabinMat = new THREE.MeshPhongMaterial({ color: 0x223344, shininess: 80 });
+const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.55, 2.2), cabinMat);
+cabin.position.set(0, 1.17, -0.1);
+cabin.castShadow = true;
+carGroup.add(cabin);
+
+// Wheels
+const wheelMat = new THREE.MeshPhongMaterial({ color: 0x111111 });
+const rimMat   = new THREE.MeshPhongMaterial({ color: 0xcccccc, shininess: 200 });
+const wheelPositions = [
+  [-1.1, 0.35, 1.3],
+  [ 1.1, 0.35, 1.3],
+  [-1.1, 0.35,-1.3],
+  [ 1.1, 0.35,-1.3],
+];
+
+const wheels = [];
+wheelPositions.forEach(pos => {
+  const wg = new THREE.Group();
+  const tyre = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.3, 16), wheelMat);
+  tyre.rotation.z = Math.PI / 2;
+  tyre.castShadow = true;
+  wg.add(tyre);
+  const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.32, 8), rimMat);
+  rim.rotation.z = Math.PI / 2;
+  wg.add(rim);
+  wg.position.set(...pos);
+  carGroup.add(wg);
+  wheels.push(wg);
+});
+
+// Headlights
+const headlightMat = new THREE.MeshPhongMaterial({ color: 0xffffee, emissive: 0xffff88, emissiveIntensity: 1 });
+[-0.7, 0.7].forEach(x => {
+  const hl = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.1), headlightMat);
+  hl.position.set(x, 0.65, 2.1);
+  carGroup.add(hl);
+});
+
+// Headlight point lights
+const headlightL = new THREE.SpotLight(0xffffff, 1.5, 40, Math.PI / 6, 0.4);
+headlightL.position.set(-0.7, 0.8, 2.2);
+headlightL.target.position.set(-0.5, 0, 12);
+carGroup.add(headlightL);
+carGroup.add(headlightL.target);
+
+const headlightR = new THREE.SpotLight(0xffffff, 1.5, 40, Math.PI / 6, 0.4);
+headlightR.position.set(0.7, 0.8, 2.2);
+headlightR.target.position.set(0.5, 0, 12);
+carGroup.add(headlightR);
+carGroup.add(headlightR.target);
+
+carGroup.position.set(0, 0, 10);
+scene.add(carGroup);
+
+// ─────────────────────────────────────────────
+// INPUT STATE
+// ─────────────────────────────────────────────
+const keys = { gas: false, brake: false, left: false, right: false };
+
+// Keyboard (desktop fallback)
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowUp'   || e.key === 'w') keys.gas   = true;
+  if (e.key === 'ArrowDown' || e.key === 's') keys.brake = true;
+  if (e.key === 'ArrowLeft' || e.key === 'a') keys.left  = true;
+  if (e.key === 'ArrowRight'|| e.key === 'd') keys.right = true;
+});
+document.addEventListener('keyup', e => {
+  if (e.key === 'ArrowUp'   || e.key === 'w') keys.gas   = false;
+  if (e.key === 'ArrowDown' || e.key === 's') keys.brake = false;
+  if (e.key === 'ArrowLeft' || e.key === 'a') keys.left  = false;
+  if (e.key === 'ArrowRight'|| e.key === 'd') keys.right = false;
+});
+
+// Touch buttons
+function bindBtn(id, key) {
+  const el = document.getElementById(id);
+  const activate = () => { keys[key] = true; el.classList.add('active'); };
+  const deactivate = () => { keys[key] = false; el.classList.remove('active'); };
+  el.addEventListener('touchstart', e => { e.preventDefault(); activate(); }, { passive: false });
+  el.addEventListener('touchend',   e => { e.preventDefault(); deactivate(); }, { passive: false });
+  el.addEventListener('mousedown',  activate);
+  el.addEventListener('mouseup',    deactivate);
+  el.addEventListener('mouseleave', deactivate);
+}
+bindBtn('btn-gas',   'gas');
+bindBtn('btn-brake', 'brake');
+bindBtn('btn-left',  'left');
+bindBtn('btn-right', 'right');
+
+// ─────────────────────────────────────────────
+// CAR PHYSICS STATE
+// ─────────────────────────────────────────────
+let speed       = 0;       // current speed (units/s)
+let carX        = 0;       // lateral position
+let carZ        = 10;      // forward position
+let carAngle    = 0;       // yaw in radians
+let steerAngle  = 0;       // front wheel steer
+
+const MAX_SPEED    = 28;
+const ACCELERATION = 12;
+const BRAKING      = 22;
+const FRICTION     = 6;
+const STEER_SPEED  = 1.6;
+const MAX_STEER    = 0.45;
+const TURN_FACTOR  = 0.018;
+const ROAD_LIMIT   = 6.5;
+
+// ─────────────────────────────────────────────
+// GAME LOOP
+// ─────────────────────────────────────────────
+const clock = new THREE.Clock();
+const speedValEl = document.getElementById('speedVal');
+
+// Camera follow params
+const camOffset = new THREE.Vector3(0, 5, -12);
+const camLookAheadDist = 8;
+
+function update(dt) {
+  // ── Acceleration / braking ──
+  if (keys.gas) {
+    speed = Math.min(speed + ACCELERATION * dt, MAX_SPEED);
+  } else if (keys.brake) {
+    speed = Math.max(speed - BRAKING * dt, -MAX_SPEED * 0.4);
+  } else {
+    // natural friction
+    if (speed > 0) speed = Math.max(0, speed - FRICTION * dt);
+    if (speed < 0) speed = Math.min(0, speed + FRICTION * dt);
+  }
+
+  // ── Steering ──
+  if (keys.left)  steerAngle = Math.max(steerAngle - STEER_SPEED * dt, -MAX_STEER);
+  else if (keys.right) steerAngle = Math.min(steerAngle + STEER_SPEED * dt, MAX_STEER);
+  else {
+    // self-centering
+    if (steerAngle > 0) steerAngle = Math.max(0, steerAngle - STEER_SPEED * 2 * dt);
+    if (steerAngle < 0) steerAngle = Math.min(0, steerAngle + STEER_SPEED * 2 * dt);
+  }
+
+  // ── Apply turning ──
+  if (Math.abs(speed) > 0.5) {
+    carAngle += steerAngle * speed * TURN_FACTOR;
+  }
+
+  // ── Move car forward (in car's local forward direction) ──
+  carX += Math.sin(carAngle) * speed * dt;
+  carZ += Math.cos(carAngle) * speed * dt;
+
+  // ── Road boundary ──
+  if (carX > ROAD_LIMIT) { carX = ROAD_LIMIT; speed *= 0.5; }
+  if (carX < -ROAD_LIMIT) { carX = -ROAD_LIMIT; speed *= 0.5; }
+
+  // ── Update car mesh ──
+  carGroup.position.set(carX, 0, carZ);
+  carGroup.rotation.y = carAngle;
+
+  // Wheel spin
+  const spinSpeed = speed * dt * 2.5;
+  wheels.forEach((w, i) => {
+    w.rotation.x += spinSpeed;
+    // front wheel steering visual
+    if (i < 2) w.rotation.y = steerAngle * 0.8;
+  });
+
+  // ── Scroll road segments ──
+  const segLen = SEGMENT_LENGTH;
+  roadSegments.forEach(seg => {
+    // keep segments ahead of car
+    while (seg.position.z < carZ - segLen) {
+      seg.position.z += NUM_SEGMENTS * segLen;
+    }
+    while (seg.position.z > carZ + (NUM_SEGMENTS - 1) * segLen) {
+      seg.position.z -= NUM_SEGMENTS * segLen;
+    }
+  });
+
+  // ── Camera follow ──
+  const cosA = Math.cos(carAngle);
+  const sinA = Math.sin(carAngle);
+  const camX = carX - sinA * 12;
+  const camY = 5;
+  const camZ_pos = carZ - cosA * 12;
+  camera.position.lerp(new THREE.Vector3(camX, camY, camZ_pos), 5 * dt);
+
+  const lookX = carX + sinA * camLookAheadDist;
+  const lookZ = carZ + cosA * camLookAheadDist;
+  camera.lookAt(lookX, 0.8, lookZ);
+
+  // ── Speedometer ──
+  speedValEl.textContent = Math.abs(Math.round(speed * 3.6));
+
+  // ── Shadow follows car ──
+  sun.position.set(carX + 30, 60, carZ + 30);
+  sun.target.position.set(carX, 0, carZ);
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  update(dt);
+  renderer.render(scene, camera);
+}
+
+// ─────────────────────────────────────────────
+// RESIZE
+// ─────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ─────────────────────────────────────────────
+// START
+// ─────────────────────────────────────────────
+setTimeout(() => {
+  const loader = document.getElementById('loader');
+  loader.style.opacity = '0';
+  setTimeout(() => loader.remove(), 600);
+  animate();
+}, 1400);
+</script>
+</body>
+</html>

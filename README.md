@@ -1,2 +1,2 @@
 # 3d-cargame-
-Khuiju8i
+Map is from meshy ai cc.4.0 license. 

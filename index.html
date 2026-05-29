@@ -758,8 +758,8 @@ function update(dt) {
   const camDist   = 14 + Math.abs(speed) * 0.15;
   const targetCamPos = new THREE.Vector3(carX - sinA*camDist, camHeight, carZ - cosA*camDist);
   camera.position.lerp(targetCamPos, 6*dt);
-  if (camera.position.y < 3) camera.position.y = 3; // never go underground
-  camera.lookAt(carX + sinA*8, 1.5, carZ + cosA*8);
+  if (camera.position.y < 3) camera.position.y = 3;
+  camera.lookAt(carX, 1.5, carZ);
 
   // Sun follows car
   sun.position.set(carX+80, 120, carZ+60);

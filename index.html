@@ -159,8 +159,8 @@
   <div class="loader-bar"><div class="loader-fill"></div></div>
 </div>
 
-<!-- Canvas -->
-<canvas id="gameCanvas"></canvas>
+<!-- Debug Info -->
+<div id="debug" style="position:fixed;top:80px;left:10px;color:#00ffcc;font-family:monospace;font-size:11px;background:rgba(0,0,0,0.6);padding:8px;border-radius:4px;z-index:30;pointer-events:none;"></div>
 
 <!-- HUD -->
 <div id="speedometer">
@@ -238,7 +238,7 @@ scene.add(rimLight);
 // MAP (GLB)
 // ─────────────────────────────────────────────
 let mapLoaded = false;
-const MAP_SCALE = 80; // scale up the map - adjust if too big/small
+const MAP_SCALE = 200; // scale up the map - adjust if too big/small
 
 const mapLoader = new THREE.GLTFLoader();
 mapLoader.load(
@@ -273,7 +273,12 @@ mapLoader.load(
 
     scene.add(map);
     mapLoaded = true;
-    console.log('Map loaded! Scale:', scale, 'Size (world units):', size.x * scale, size.z * scale);
+    const wx = (size.x * scale).toFixed(1);
+    const wz = (size.z * scale).toFixed(1);
+    const wy = (size.y * scale).toFixed(1);
+    const miny = (box.min.y * scale).toFixed(1);
+    document.getElementById('debug').innerHTML = 
+      'MAP OK<br>W:' + wx + ' H:' + wy + ' D:' + wz + '<br>minY:' + miny;
   },
   (progress) => {
     if (progress.total > 0) {
@@ -402,11 +407,12 @@ bindBtn('btn-right', 'right');
 // ─────────────────────────────────────────────
 // CAR PHYSICS STATE
 // ─────────────────────────────────────────────
-let speed       = 0;       // current speed (units/s)
-let carX        = 0;       // lateral position
-let carZ        = 10;      // forward position
-let carAngle    = 0;       // yaw in radians
-let steerAngle  = 0;       // front wheel steer
+let speed       = 0;
+let carX        = 0;
+let carZ        = 0;
+let carAngle    = 0;
+let steerAngle  = 0;
+let carY        = 5; // start above map, will settle
 
 const MAX_SPEED    = 28;
 const ACCELERATION = 12;
@@ -464,7 +470,7 @@ function update(dt) {
   if (carZ < -MAP_LIMIT) { carZ = -MAP_LIMIT; speed *= 0.3; }
 
   // ── Update car mesh ──
-  carGroup.position.set(carX, 0, carZ);
+  carGroup.position.set(carX, carY, carZ);
   carGroup.rotation.y = carAngle;
 
   // ── Camera follow ──
@@ -481,6 +487,8 @@ function update(dt) {
 
   // ── Speedometer ──
   speedValEl.textContent = Math.abs(Math.round(speed * 3.6));
+  const dbg = document.getElementById('debug');
+  if (dbg) dbg.innerHTML = (dbg.innerHTML.split('<br>CAR')[0]) + '<br>CAR X:' + carX.toFixed(1) + ' Y:' + carY.toFixed(1) + ' Z:' + carZ.toFixed(1);
 
   // ── Shadow follows car ──
   sun.position.set(carX + 30, 60, carZ + 30);

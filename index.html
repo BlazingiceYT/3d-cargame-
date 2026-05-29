@@ -202,19 +202,19 @@ renderer.toneMappingExposure = 1.2;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1a1a2e);
-scene.fog = new THREE.Fog(0x1a1a2e, 80, 300);
+scene.fog = new THREE.Fog(0x1a1a2e, 200, 1000);
 
 // ─────────────────────────────────────────────
 // CAMERA
 // ─────────────────────────────────────────────
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
 camera.position.set(0, 5, -12);
 camera.lookAt(0, 0, 0);
 
 // ─────────────────────────────────────────────
 // LIGHTING
 // ─────────────────────────────────────────────
-const ambientLight = new THREE.AmbientLight(0x404060, 0.8);
+const ambientLight = new THREE.AmbientLight(0x404060, 1.2);
 scene.add(ambientLight);
 
 const sun = new THREE.DirectionalLight(0xffeedd, 2.0);
@@ -262,8 +262,7 @@ mapLoader.load(
     map.position.z = -center.z * scale;
 
     // Sit map on y=0
-    const box2 = new THREE.Box3().setFromObject(map);
-    map.position.y = -box2.min.y;
+    map.position.y = -box.min.y * scale;
 
     map.traverse(child => {
       if (child.isMesh) {
@@ -274,7 +273,7 @@ mapLoader.load(
 
     scene.add(map);
     mapLoaded = true;
-    console.log('Map loaded! Scale:', scale, 'Size:', size);
+    console.log('Map loaded! Scale:', scale, 'Size (world units):', size.x * scale, size.z * scale);
   },
   (progress) => {
     if (progress.total > 0) {
@@ -324,25 +323,28 @@ loader.load(
 
     const model = gltf.scene;
 
-    // Auto-scale: fit model into roughly a 4-unit long car
+    // Auto-scale
     const box = new THREE.Box3().setFromObject(model);
     const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
     box.getSize(size);
+    box.getCenter(center);
+
     const maxDim = Math.max(size.x, size.y, size.z);
     const scale = 8 / maxDim;
     model.scale.setScalar(scale);
 
-    // Centre model horizontally and sit on ground
-    const center = new THREE.Vector3();
-    box.getCenter(center);
+    // Centre model on X and Z
     model.position.x = -center.x * scale;
     model.position.z = -center.z * scale;
 
-    // Sit model on the ground after scaling
+    // Sit on ground
     const box2 = new THREE.Box3().setFromObject(model);
     model.position.y = -box2.min.y;
 
-    // Enable shadows on all meshes
+    // Rotate to face forward (try 180 degrees if facing wrong way)
+    model.rotation.y = Math.PI;
+
     model.traverse(child => {
       if (child.isMesh) {
         child.castShadow = true;

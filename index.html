@@ -116,7 +116,7 @@ scene.fog = new THREE.Fog(0x87CEEB, 120, 400);
 // CAMERA
 // ═══════════════════════════════════════════════
 const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 600);
-camera.position.set(0, 8, -14);
+camera.position.set(0, 12, -18);
 camera.lookAt(0, 0, 10);
 
 // ═══════════════════════════════════════════════
@@ -754,11 +754,13 @@ function update(dt) {
 
   // Camera follow
   const sinA = Math.sin(carAngle), cosA = Math.cos(carAngle);
-  const camHeight = 8 + Math.abs(speed) * 0.08;
-  const camDist   = 14 + Math.abs(speed) * 0.15;
-  const targetCamPos = new THREE.Vector3(carX - sinA*camDist, camHeight, carZ - cosA*camDist);
-  camera.position.lerp(targetCamPos, 6*dt);
-  if (camera.position.y < 3) camera.position.y = 3;
+  const camHeight = 12 + Math.abs(speed) * 0.08;
+  const camDist   = 18 + Math.abs(speed) * 0.15;
+  const targetX = carX - sinA * camDist;
+  const targetZ = carZ - cosA * camDist;
+  camera.position.x += (targetX - camera.position.x) * 6 * dt;
+  camera.position.z += (targetZ - camera.position.z) * 6 * dt;
+  camera.position.y = camHeight; // always fixed height, never lerped
   camera.lookAt(carX, 1.5, carZ);
 
   // Sun follows car

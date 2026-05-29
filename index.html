@@ -117,6 +117,7 @@ scene.fog = new THREE.Fog(0x87CEEB, 120, 400);
 // ═══════════════════════════════════════════════
 const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 600);
 camera.position.set(0, 8, -14);
+camera.lookAt(0, 0, 10);
 
 // ═══════════════════════════════════════════════
 // LIGHTING
@@ -757,6 +758,7 @@ function update(dt) {
   const camDist   = 14 + Math.abs(speed) * 0.15;
   const targetCamPos = new THREE.Vector3(carX - sinA*camDist, camHeight, carZ - cosA*camDist);
   camera.position.lerp(targetCamPos, 6*dt);
+  if (camera.position.y < 3) camera.position.y = 3; // never go underground
   camera.lookAt(carX + sinA*8, 1.5, carZ + cosA*8);
 
   // Sun follows car

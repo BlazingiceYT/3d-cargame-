@@ -235,84 +235,69 @@ rimLight.position.set(-20, 10, -20);
 scene.add(rimLight);
 
 // ─────────────────────────────────────────────
-// ROAD (infinite-looking tiled road)
+// MAP (GLB)
 // ─────────────────────────────────────────────
-const ROAD_WIDTH = 14;
-const SEGMENT_LENGTH = 40;
-const NUM_SEGMENTS = 10;
-const roadSegments = [];
+let mapLoaded = false;
+const MAP_SCALE = 80; // scale up the map - adjust if too big/small
 
-const roadMat = new THREE.MeshLambertMaterial({ color: 0x222228 });
-const lineMat  = new THREE.MeshLambertMaterial({ color: 0xffffff });
-const groundMat = new THREE.MeshLambertMaterial({ color: 0x1a3320 });
+const mapLoader = new THREE.GLTFLoader();
+mapLoader.load(
+  'map.glb',
+  (gltf) => {
+    const map = gltf.scene;
 
-for (let i = 0; i < NUM_SEGMENTS; i++) {
-  const group = new THREE.Group();
+    // Auto-centre and scale the map
+    const box = new THREE.Box3().setFromObject(map);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
 
-  // Road slab
-  const road = new THREE.Mesh(
-    new THREE.PlaneGeometry(ROAD_WIDTH, SEGMENT_LENGTH),
-    roadMat
-  );
-  road.rotation.x = -Math.PI / 2;
-  road.receiveShadow = true;
-  group.add(road);
+    const maxDim = Math.max(size.x, size.z);
+    const scale = MAP_SCALE / maxDim;
+    map.scale.setScalar(scale);
 
-  // Centre dashed line
-  for (let d = 0; d < 4; d++) {
-    const dash = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.3, 3),
-      lineMat
+    // Centre map at origin
+    map.position.x = -center.x * scale;
+    map.position.z = -center.z * scale;
+
+    // Sit map on y=0
+    const box2 = new THREE.Box3().setFromObject(map);
+    map.position.y = -box2.min.y;
+
+    map.traverse(child => {
+      if (child.isMesh) {
+        child.receiveShadow = true;
+        child.castShadow = false;
+      }
+    });
+
+    scene.add(map);
+    mapLoaded = true;
+    console.log('Map loaded! Scale:', scale, 'Size:', size);
+  },
+  (progress) => {
+    if (progress.total > 0) {
+      const pct = Math.round((progress.loaded / progress.total) * 100);
+      const loaderEl = document.getElementById('loader');
+      if (loaderEl) {
+        const p = loaderEl.querySelector('p');
+        if (p) p.textContent = 'LOADING MAP... ' + pct + '%';
+      }
+    }
+  },
+  (error) => {
+    console.warn('Map load failed:', error);
+    // Fallback flat ground
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(500, 500),
+      new THREE.MeshLambertMaterial({ color: 0x1a3320 })
     );
-    dash.rotation.x = -Math.PI / 2;
-    dash.position.set(0, 0.01, -SEGMENT_LENGTH / 2 + 5 + d * 10);
-    group.add(dash);
+    ground.rotation.x = -Math.PI / 2;
+    scene.add(ground);
+    mapLoaded = true;
   }
-
-  // Ground on both sides
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(200, SEGMENT_LENGTH),
-    groundMat
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -0.02;
-  ground.receiveShadow = true;
-  group.add(ground);
-
-  group.position.z = i * SEGMENT_LENGTH;
-  scene.add(group);
-  roadSegments.push(group);
-}
-
-// ─────────────────────────────────────────────
-// TREES (simple but charming)
-// ─────────────────────────────────────────────
-function makeTree(x, z) {
-  const g = new THREE.Group();
-  const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.2, 0.3, 2, 6),
-    new THREE.MeshLambertMaterial({ color: 0x5c3d1e })
-  );
-  trunk.position.y = 1;
-  trunk.castShadow = true;
-  g.add(trunk);
-
-  const canopy = new THREE.Mesh(
-    new THREE.ConeGeometry(1.6, 4, 7),
-    new THREE.MeshLambertMaterial({ color: 0x2d6a4f })
-  );
-  canopy.position.y = 4.5;
-  canopy.castShadow = true;
-  g.add(canopy);
-
-  g.position.set(x, 0, z);
-  return g;
-}
-
-for (let z = 0; z < 300; z += 12) {
-  scene.add(makeTree( -(ROAD_WIDTH / 2 + 3 + Math.random() * 4), z));
-  scene.add(makeTree(   ROAD_WIDTH / 2 + 3 + Math.random() * 4,  z));
-}
+);
 
 // ─────────────────────────────────────────────
 // CAR (GLB Model)
@@ -428,7 +413,6 @@ const FRICTION     = 6;
 const STEER_SPEED  = 0.9;
 const MAX_STEER    = 0.22;
 const TURN_FACTOR  = 0.012;
-const ROAD_LIMIT   = 6.5;
 
 // ─────────────────────────────────────────────
 // GAME LOOP
@@ -470,25 +454,16 @@ function update(dt) {
   carX += Math.sin(carAngle) * speed * dt;
   carZ += Math.cos(carAngle) * speed * dt;
 
-  // ── Road boundary ──
-  if (carX > ROAD_LIMIT) { carX = ROAD_LIMIT; speed *= 0.5; }
-  if (carX < -ROAD_LIMIT) { carX = -ROAD_LIMIT; speed *= 0.5; }
+  // ── Road boundary (map boundary) ──
+  const MAP_LIMIT = MAP_SCALE / 2;
+  if (carX > MAP_LIMIT)  { carX = MAP_LIMIT;  speed *= 0.3; }
+  if (carX < -MAP_LIMIT) { carX = -MAP_LIMIT; speed *= 0.3; }
+  if (carZ > MAP_LIMIT)  { carZ = MAP_LIMIT;  speed *= 0.3; }
+  if (carZ < -MAP_LIMIT) { carZ = -MAP_LIMIT; speed *= 0.3; }
 
   // ── Update car mesh ──
   carGroup.position.set(carX, 0, carZ);
   carGroup.rotation.y = carAngle;
-
-  // ── Scroll road segments ──
-  const segLen = SEGMENT_LENGTH;
-  roadSegments.forEach(seg => {
-    // keep segments ahead of car
-    while (seg.position.z < carZ - segLen) {
-      seg.position.z += NUM_SEGMENTS * segLen;
-    }
-    while (seg.position.z > carZ + (NUM_SEGMENTS - 1) * segLen) {
-      seg.position.z -= NUM_SEGMENTS * segLen;
-    }
-  });
 
   // ── Camera follow ──
   const cosA = Math.cos(carAngle);
@@ -529,12 +504,17 @@ window.addEventListener('resize', () => {
 // ─────────────────────────────────────────────
 // START
 // ─────────────────────────────────────────────
-setTimeout(() => {
-  const loader = document.getElementById('loader');
-  loader.style.opacity = '0';
-  setTimeout(() => loader.remove(), 600);
-  animate();
-}, 1400);
+animate();
+
+// Wait for map to load before hiding loader
+const loaderEl = document.getElementById('loader');
+const waitForMap = setInterval(() => {
+  if (mapLoaded) {
+    clearInterval(waitForMap);
+    loaderEl.style.opacity = '0';
+    setTimeout(() => loaderEl.remove(), 600);
+  }
+}, 200);
 </script>
 </body>
 </html>

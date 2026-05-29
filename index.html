@@ -117,7 +117,7 @@ scene.fog = new THREE.Fog(0x87CEEB, 120, 400);
 // ═══════════════════════════════════════════════
 const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 600);
 camera.position.set(0, 12, -18);
-camera.lookAt(0, 0, 10);
+camera.lookAt(0, 0, 20);
 
 // ═══════════════════════════════════════════════
 // LIGHTING
@@ -760,8 +760,8 @@ function update(dt) {
   const targetZ = carZ - cosA * camDist;
   camera.position.x += (targetX - camera.position.x) * 6 * dt;
   camera.position.z += (targetZ - camera.position.z) * 6 * dt;
-  camera.position.y = camHeight; // always fixed height, never lerped
-  camera.lookAt(carX, 1.5, carZ);
+  camera.position.y = camHeight;
+  camera.lookAt(carX + sinA * 10, 0, carZ + cosA * 10);
 
   // Sun follows car
   sun.position.set(carX+80, 120, carZ+60);

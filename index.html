@@ -260,20 +260,44 @@ function buildHighways() {
 buildHighways();
 
 // ═══════════════════════════════════════════════
-// STRUCTURAL CITY DESIGN & ASSETS
+// STRUCTURAL CITY DESIGN & ASSETS (REALISTIC UPGRADE)
 // ═══════════════════════════════════════════════
-const buildingColors = [0x5f6a7a, 0x4a6355, 0x785e4f, 0x3d4b66, 0x694f61, 0x787885];
+const buildingColors = [0x2f3640, 0x353b48, 0x718093, 0x1e272e, 0x485460, 0x2c3e50];
 
 function makeBuilding(x, z, w, d, h, colorIdx) {
-  const color = buildingColors[colorIdx % buildingColors.length];
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.1 });
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  mesh.position.set(x, h/2, z);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
+  const baseColor = buildingColors[colorIdx % buildingColors.length];
+  
+  // High-fidelity structural material presets
+  const matFaçade = new THREE.MeshStandardMaterial({ 
+    color: baseColor, 
+    roughness: 0.6, 
+    metalness: 0.25 
+  });
+  const matWindowPane = new THREE.MeshStandardMaterial({ 
+    color: 0xdff9fb, 
+    emissive: 0xfbc531, 
+    emissiveIntensity: Math.random() * 0.4 + 0.1,
+    roughness: 0.1,
+    metalness: 0.9
+  });
+  const matFrame = new THREE.MeshStandardMaterial({ 
+    color: 0x1e272e, 
+    roughness: 0.5, 
+    metalness: 0.8 
+  });
 
-  // Register spatial bounds for calculations
+  const buildingGroup = new THREE.Group();
+  buildingGroup.position.set(x, 0, z);
+  scene.add(buildingGroup);
+
+  // Core Concrete Pillar Structure
+  const coreMesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), matFaçade);
+  coreMesh.position.y = h / 2;
+  coreMesh.castShadow = true;
+  coreMesh.receiveShadow = true;
+  buildingGroup.add(coreMesh);
+
+  // Register spatial bounds for calculations (Collision Matrix)
   staticBuildings.push({
     minX: x - w/2,
     maxX: x + w/2,
@@ -281,28 +305,92 @@ function makeBuilding(x, z, w, d, h, colorIdx) {
     maxZ: z + d/2
   });
 
+  // Architectural Roof Parapet Tier Details
   if (h > 15) {
     const top = new THREE.Mesh(
-      new THREE.BoxGeometry(w * 0.4, 2, d * 0.4),
-      new THREE.MeshStandardMaterial({ color: 0x222933, roughness: 0.7 })
+      new THREE.BoxGeometry(w * 0.88, 2, d * 0.88),
+      new THREE.MeshStandardMaterial({ color: 0x11141a, roughness: 0.8 })
     );
-    top.position.set(x, h + 1, z);
+    top.position.set(0, h + 1, 0);
     top.castShadow = true;
-    scene.add(top);
+    buildingGroup.add(top);
+    
+    // Tiny structural AC units / Generators on the roof for realism
+    const acUnit = new THREE.Mesh(new THREE.BoxGeometry(w * 0.15, 1.5, d * 0.15), matFrame);
+    acUnit.position.set(w * 0.1, h + 1.75, d * 0.1);
+    buildingGroup.add(acUnit);
   }
 
-  if (h > 8) {
-    const winMat = new THREE.MeshStandardMaterial({ color: 0xf6f9d2, emissive: 0xe0e599, emissiveIntensity: 0.3 });
-    for (let wy = 4; wy < h - 3; wy += 5) {
-      for (let side = 0; side < 4; side++) {
-        if (Math.random() > 0.15) { 
-          const win = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.7, 1.8), winMat);
-          if (side === 0) { win.position.set(x, wy, z + d/2 + 0.02); }
-          else if (side === 1) { win.position.set(x, wy, z - d/2 - 0.02); win.rotation.y = Math.PI; }
-          else if (side === 2) { win.position.set(x + w/2 + 0.02, wy, z); win.rotation.y = Math.PI/2; }
-          else { win.position.set(x - w/2 - 0.02, wy, z); win.rotation.y = -Math.PI/2; }
-          scene.add(win);
-        }
+  // 3D Sharp Windows Procedural Matrix Construction
+  const winW = 1.6;
+  const winH = 2.4;
+  const winDepth = 0.25; // Inset depth for physically realistic parallax styling
+  const floorH = 4.5;
+  const paddingX = 2.2;
+
+  const winPaneGeo = new THREE.BoxGeometry(winW, winH, winDepth);
+  const winFrameGeo = new THREE.BoxGeometry(winW + 0.2, winH + 0.2, 0.08);
+
+  // Vertical structural column sweeps
+  for (let wy = floorH; wy < h - 3; wy += floorH) {
+    
+    // Front Face (Z+) and Back Face (Z-)
+    const xCount = Math.floor((w - 4) / paddingX);
+    const xStart = -((xCount - 1) * paddingX) / 2;
+
+    for (let xi = 0; xi < xCount; xi++) {
+      if (Math.random() > 0.08) { // Natural variations in building occupancy
+        const curX = xStart + xi * paddingX;
+
+        // Front Face Structural Assembly
+        const frameF = new THREE.Mesh(winFrameGeo, matFrame);
+        frameF.position.set(curX, wy, d / 2);
+        buildingGroup.add(frameF);
+
+        const paneF = new THREE.Mesh(winPaneGeo, matWindowPane);
+        paneF.position.set(curX, wy, d / 2 - winDepth / 2 + 0.02);
+        buildingGroup.add(paneF);
+
+        // Back Face Structural Assembly
+        const frameB = new THREE.Mesh(winFrameGeo, matFrame);
+        frameB.position.set(curX, wy, -d / 2);
+        buildingGroup.add(frameB);
+
+        const paneB = new THREE.Mesh(winPaneGeo, matWindowPane);
+        paneB.position.set(curX, wy, -d / 2 + winDepth / 2 - 0.02);
+        buildingGroup.add(paneB);
+      }
+    }
+
+    // Left Face (X-) and Right Face (X+)
+    const zCount = Math.floor((d - 4) / paddingX);
+    const zStart = -((zCount - 1) * paddingX) / 2;
+
+    for (let zi = 0; zi < zCount; zi++) {
+      if (Math.random() > 0.08) {
+        const curZ = zStart + zi * paddingX;
+
+        // Right Face Structural Assembly
+        const frameR = new THREE.Mesh(winFrameGeo, matFrame);
+        frameR.rotation.y = Math.PI / 2;
+        frameR.position.set(w / 2, wy, curZ);
+        buildingGroup.add(frameR);
+
+        const paneR = new THREE.Mesh(winPaneGeo, matWindowPane);
+        paneR.rotation.y = Math.PI / 2;
+        paneR.position.set(w / 2 - winDepth / 2 + 0.02, wy, curZ);
+        buildingGroup.add(paneR);
+
+        // Left Face Structural Assembly
+        const frameL = new THREE.Mesh(winFrameGeo, matFrame);
+        frameL.rotation.y = Math.PI / 2;
+        frameL.position.set(-w / 2, wy, curZ);
+        buildingGroup.add(frameL);
+
+        const paneL = new THREE.Mesh(winPaneGeo, matWindowPane);
+        paneL.rotation.y = Math.PI / 2;
+        paneL.position.set(-w / 2 + winDepth / 2 - 0.02, wy, curZ);
+        buildingGroup.add(paneL);
       }
     }
   }

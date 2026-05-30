@@ -116,7 +116,7 @@ scene.fog = new THREE.Fog(0x87CEEB, 120, 400);
 // CAMERA
 // ═══════════════════════════════════════════════
 const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 600);
-camera.position.set(0, 25, -15);
+camera.position.set(0, 5, 0);
 camera.up.set(0, 1, 0);
 camera.lookAt(0, 0, 10);
 
@@ -668,9 +668,13 @@ bindBtn('btn-brake','brake');
 bindBtn('btn-left', 'left');
 bindBtn('btn-right','right');
 
-// ═══════════════════════════════════════════════
-// PLAYER PHYSICS
-// ═══════════════════════════════════════════════
+// DEBUG MARKER - big red sphere at origin
+const debugSphere = new THREE.Mesh(
+  new THREE.SphereGeometry(5, 8, 8),
+  new THREE.MeshBasicMaterial({ color: 0xff0000 })
+);
+debugSphere.position.set(0, 0, 10);
+scene.add(debugSphere);
 let speed=0, carX=0, carZ=10, carAngle=0, steerAngle=0;
 
 const MAX_SPEED=30, ACCEL=14, BRAKE=24, FRIC=7;
@@ -754,10 +758,10 @@ function update(dt) {
   carGroup.rotation.y = carAngle;
 
   camera.up.set(0, 1, 0);
-  camera.position.x = carX - Math.sin(carAngle) * 15;
-  camera.position.y = 25;
-  camera.position.z = carZ - Math.cos(carAngle) * 15;
-  camera.lookAt(carX, 0, carZ);
+  camera.position.x = carX - Math.sin(carAngle) * 10;
+  camera.position.y = 5;
+  camera.position.z = carZ - Math.cos(carAngle) * 10;
+  camera.lookAt(carX + Math.sin(carAngle) * 5, 0, carZ + Math.cos(carAngle) * 5);
 
   // Sun follows car
   sun.position.set(carX+80, 120, carZ+60);

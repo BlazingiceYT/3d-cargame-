@@ -754,9 +754,9 @@ function update(dt) {
 
   // Camera follow
   const sinA = Math.sin(carAngle), cosA = Math.cos(carAngle);
-  // Simple reliable camera - behind and above car, always looking at car
-  const behindX = carX - Math.sin(carAngle) * 20;
-  const behindZ = carZ - Math.cos(carAngle) * 20;
+  // Camera: behind and above car
+  const behindX = carX + Math.sin(carAngle) * 20;
+  const behindZ = carZ + Math.cos(carAngle) * 20;
   camera.position.set(behindX, 8, behindZ);
   camera.lookAt(carX, 2, carZ);
 

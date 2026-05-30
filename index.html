@@ -116,9 +116,9 @@ scene.fog = new THREE.Fog(0x87CEEB, 120, 400);
 // CAMERA
 // ═══════════════════════════════════════════════
 const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 600);
-camera.position.set(0, 5, 0);
+camera.position.set(0, 5, 10);
 camera.up.set(0, 1, 0);
-camera.lookAt(0, 0, 10);
+camera.lookAt(0, 0, 0);
 
 // ═══════════════════════════════════════════════
 // LIGHTING
@@ -745,7 +745,7 @@ function update(dt) {
   if (Math.abs(speed) > 0.3) carAngle += steerAngle * speed * TURN;
 
   carX += Math.sin(carAngle) * speed * dt;
-  carZ += Math.cos(carAngle) * speed * dt;
+  carZ -= Math.cos(carAngle) * speed * dt;
 
   // Map boundary
   const LIM = MAP_SIZE - 5;
@@ -760,8 +760,8 @@ function update(dt) {
   camera.up.set(0, 1, 0);
   camera.position.x = carX - Math.sin(carAngle) * 10;
   camera.position.y = 5;
-  camera.position.z = carZ - Math.cos(carAngle) * 10;
-  camera.lookAt(carX + Math.sin(carAngle) * 5, 0, carZ + Math.cos(carAngle) * 5);
+  camera.position.z = carZ + Math.cos(carAngle) * 10;
+  camera.lookAt(carX + Math.sin(carAngle) * 5, 0, carZ - Math.cos(carAngle) * 5);
 
   // Sun follows car
   sun.position.set(carX+80, 120, carZ+60);

@@ -116,8 +116,9 @@ scene.fog = new THREE.Fog(0x87CEEB, 120, 400);
 // CAMERA
 // ═══════════════════════════════════════════════
 const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 600);
-camera.position.set(0, 8, -20);
-camera.lookAt(0, 2, 10);
+camera.position.set(0, 8, 20);
+camera.up.set(0, 1, 0);
+camera.lookAt(0, 0, 0);
 
 // ═══════════════════════════════════════════════
 // LIGHTING
@@ -757,6 +758,7 @@ function update(dt) {
   // Camera: behind and above car
   const behindX = carX + Math.sin(carAngle) * 20;
   const behindZ = carZ + Math.cos(carAngle) * 20;
+  camera.up.set(0, 1, 0);
   camera.position.set(behindX, 8, behindZ);
   camera.lookAt(carX, 2, carZ);
 

@@ -1,13 +1,13 @@
 # 3d-cargame-
 Credits to Claude and gemini.
 
-Update1: Created a basic 3d car game
+Update1: Created a basic 3d car game. [28 May]
 
-Update2: Imported map
+Update2: Imported map. [28May]
 
-Update3: Map is made in index.html
+Update3: Map is made in index.html [29may]
 
-Update3.1: Fixed camera view glitch
+Update3.1: Fixed camera view glitch [30May]
 
-Update4 : Added proper collision.
+Update4 : Added proper collision. [30May}
 

@@ -148,6 +148,10 @@ const matYLine    = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
 
 const roads = []; 
 
+// Collision registry arrays
+const staticBuildings = [];
+const streetLights = [];
+
 function addRoad(x, z, w, d) {
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), matRoad);
   mesh.rotation.x = -Math.PI/2;
@@ -268,6 +272,14 @@ function makeBuilding(x, z, w, d, h, colorIdx) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   scene.add(mesh);
+
+  // Register spatial bounds for calculations
+  staticBuildings.push({
+    minX: x - w/2,
+    maxX: x + w/2,
+    minZ: z - d/2,
+    maxZ: z + d/2
+  });
 
   if (h > 15) {
     const top = new THREE.Mesh(
@@ -395,6 +407,9 @@ function makeStreetLight(x, z) {
 
   g.position.set(x, 0, z);
   scene.add(g);
+
+  // Cache baseline placement coordinate metrics
+  streetLights.push({ x, z, radius: 0.3 });
 }
 
 [-120,-60,0,60,120].forEach(x => {
@@ -641,6 +656,75 @@ function drawMinimap() {
 }
 
 // ═══════════════════════════════════════════════
+// SOLID OBJECT RESOLUTION ENGINE (COLLISION LOGIC)
+// ═══════════════════════════════════════════════
+function resolveCollisions() {
+  // Approximate vehicle dimensions (Length: 4.2m, Width: 2.0m)
+  const carHalfW = 1.0;
+  const carHalfL = 2.1;
+
+  // 1. Structural Building Grid Collision Resolve
+  staticBuildings.forEach(b => {
+    // Dynamic calculation adjustments for car radius overlap expansion
+    const testX = Math.max(b.minX, Math.min(carX, b.maxX));
+    const testZ = Math.max(b.minZ, Math.min(carZ, b.maxZ));
+    
+    const diffX = carX - testX;
+    const diffZ = carZ - testZ;
+    const dist = Math.sqrt(diffX * diffX + diffZ * diffZ);
+    const carRadius = 1.2; 
+
+    if (dist < carRadius) {
+      let overlap = carRadius - dist;
+      // Push out calculations along surface coordinates
+      if (dist === 0) {
+        carZ = b.minZ - carRadius;
+      } else {
+        carX += (diffX / dist) * overlap;
+        carZ += (diffZ / dist) * overlap;
+      }
+      speed *= -0.25; // Dampen momentum 
+    }
+  });
+
+  // 2. Street Lamp Post Collision Resolve
+  streetLights.forEach(l => {
+    const dx = carX - l.x;
+    const dz = carZ - l.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    const minDist = l.radius + 1.1; 
+
+    if (dist < minDist) {
+      const overlap = minDist - dist;
+      carX += (dx / dist) * overlap;
+      carZ += (dz / dist) * overlap;
+      speed *= -0.3; 
+    }
+  });
+
+  // 3. Traffic Vehicle AI Intersection Resolve
+  aiCars.forEach(ai => {
+    const dx = carX - ai.position.x;
+    const dz = carZ - ai.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    const hitRadius = 2.1; 
+
+    if (dist < hitRadius) {
+      const overlap = hitRadius - dist;
+      // Redistribute vector force allocations
+      carX += (dx / dist) * overlap * 0.7;
+      carZ += (dz / dist) * overlap * 0.7;
+      
+      // Transfer kinetic load
+      ai.position.x -= (dx / dist) * overlap * 0.3;
+      ai.position.z -= (dz / dist) * overlap * 0.3;
+      
+      speed *= -0.4;
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════
 // PHYSICS, CAMERA TRACKING & GAME LOOP
 // ═══════════════════════════════════════════════
 const clock   = new THREE.Clock();
@@ -672,6 +756,9 @@ function update(dt) {
   // Linear Calculations
   carX += Math.sin(carAngle) * speed * dt;
   carZ += Math.cos(carAngle) * speed * dt;
+
+  // Run collision engine cycles before setting object states
+  resolveCollisions();
 
   // Boundary Collisions
   const LIM = MAP_SIZE - 10;

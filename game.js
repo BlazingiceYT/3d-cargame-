@@ -139,19 +139,28 @@ for (let i = 0; i < 72; i++) {
   scene.add(seg);
 }
 
+// ── SKY REFLECTION for windows ──
+// Create a simple gradient env map for reflections
+const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(128);
+const cubeCamera = new THREE.CubeCamera(0.1, 1000, cubeRenderTarget);
+scene.add(cubeCamera);
+const skyEnvMap = cubeRenderTarget.texture;
+
 // ═══════════════════════════════════════════════
 // REALISTIC BUILDINGS WITH REFLECTIVE WINDOWS
 // ═══════════════════════════════════════════════
 
-// Facade colour palettes — dark glass towers, concrete brutalist, warm brick
 const FACADE_PALETTES = [
-  { wall: 0x1a2030, glass: 0x88bbdd, emit: 0xffeebb }, // dark glass tower
-  { wall: 0x2a2a35, glass: 0x99ccee, emit: 0xfff4cc }, // charcoal glass
-  { wall: 0x3a3028, glass: 0xaabbcc, emit: 0xffeedd }, // concrete/stone
-  { wall: 0x2d3a2d, glass: 0x88ddaa, emit: 0xeeffcc }, // green glass
-  { wall: 0x35252a, glass: 0xddaaaa, emit: 0xffeeee }, // brick-warm
-  { wall: 0x252535, glass: 0xaabbff, emit: 0xddeeff }, // blue glass
+  { wall: 0x1a2030, glass: 0x88bbdd, emit: 0xffeebb },
+  { wall: 0x2a2a35, glass: 0x99ccee, emit: 0xfff4cc },
+  { wall: 0x3a3028, glass: 0xaabbcc, emit: 0xffeedd },
+  { wall: 0x2d3a2d, glass: 0x88ddaa, emit: 0xeeffcc },
+  { wall: 0x35252a, glass: 0xddaaaa, emit: 0xffeeee },
+  { wall: 0x252535, glass: 0xaabbff, emit: 0xddeeff },
 ];
+
+// Store building bounds for collision
+const buildingBounds = [];
 
 function makeBuilding(x, z, w, d, h) {
   const palette = FACADE_PALETTES[Math.floor(Math.random() * FACADE_PALETTES.length)];
@@ -159,11 +168,12 @@ function makeBuilding(x, z, w, d, h) {
   group.position.set(x, 0, z);
   scene.add(group);
 
+  // Register collision bounds
+  buildingBounds.push({ minX: x-w/2, maxX: x+w/2, minZ: z-d/2, maxZ: z+d/2 });
+
   // ── MAIN BODY ──
   const bodyMat = new THREE.MeshStandardMaterial({
-    color: palette.wall,
-    roughness: 0.75,
-    metalness: 0.1,
+    color: palette.wall, roughness: 0.75, metalness: 0.1,
   });
   const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bodyMat);
   body.position.y = h / 2;
@@ -172,113 +182,92 @@ function makeBuilding(x, z, w, d, h) {
   group.add(body);
 
   // ── REFLECTIVE GLASS WINDOW STRIPS ──
-  // Each floor has a continuous glass band on all 4 sides
   const floorHeight = 4.0;
   const windowH     = 2.2;
-  const windowInset = 0.05; // slight inset from facade
-
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: palette.glass,
-    roughness: 0.05,       // very smooth = reflective
-    metalness: 0.9,        // high metalness = mirror-like
-    envMapIntensity: 1.0,
-  });
-
-  // Emissive window material (lit at night / from inside)
-  const emitMat = new THREE.MeshStandardMaterial({
-    color: palette.emit,
-    emissive: palette.emit,
-    emissiveIntensity: 0.35 + Math.random() * 0.3,
-    roughness: 0.1,
-    metalness: 0.5,
-  });
+  const windowInset = 0.06;
 
   for (let wy = floorHeight; wy < h - 2; wy += floorHeight) {
-    const lit = Math.random() > 0.25; // 75% chance a floor is lit
-    const winMat = lit ? emitMat.clone() : glassMat.clone();
-    if (lit) winMat.emissiveIntensity = 0.2 + Math.random() * 0.5;
+    const lit = Math.random() > 0.25;
 
-    // Front face (Z+)
-    const wf = new THREE.Mesh(new THREE.PlaneGeometry(w - 1.5, windowH), winMat);
-    wf.position.set(0, wy, d / 2 + windowInset);
+    // Reflective glass material — uses scene environment map for real reflections
+    const glassMat = new THREE.MeshStandardMaterial({
+      color: lit ? palette.emit : palette.glass,
+      emissive: lit ? new THREE.Color(palette.emit) : new THREE.Color(0x000000),
+      emissiveIntensity: lit ? 0.3 + Math.random() * 0.4 : 0,
+      roughness: 0.04,
+      metalness: 0.92,
+      envMap: skyEnvMap,
+      envMapIntensity: 1.8,
+    });
+
+    // Front (Z+)
+    const wf = new THREE.Mesh(new THREE.PlaneGeometry(w - 1.2, windowH), glassMat);
+    wf.position.set(0, wy, d/2 + windowInset);
     group.add(wf);
 
-    // Back face (Z-)
+    // Back (Z-)
     const wb = wf.clone();
-    wb.position.set(0, wy, -(d / 2 + windowInset));
+    wb.material = glassMat.clone();
+    wb.position.set(0, wy, -(d/2 + windowInset));
     wb.rotation.y = Math.PI;
     group.add(wb);
 
-    // Right face (X+)
-    const wr = new THREE.Mesh(new THREE.PlaneGeometry(d - 1.5, windowH), winMat.clone());
+    // Right (X+)
+    const wr = new THREE.Mesh(new THREE.PlaneGeometry(d - 1.2, windowH), glassMat.clone());
     wr.rotation.y = Math.PI / 2;
-    wr.position.set(w / 2 + windowInset, wy, 0);
+    wr.position.set(w/2 + windowInset, wy, 0);
     group.add(wr);
 
-    // Left face (X-)
+    // Left (X-)
     const wl = wr.clone();
-    wl.position.set(-(w / 2 + windowInset), wy, 0);
+    wl.material = glassMat.clone();
+    wl.position.set(-(w/2 + windowInset), wy, 0);
     wl.rotation.y = -Math.PI / 2;
     group.add(wl);
   }
 
-  // ── ROOF DETAILS ──
-  // Parapet edge
+  // ── ROOF PARAPET ──
   const parapetMat = new THREE.MeshStandardMaterial({ color: 0x111118, roughness: 0.8 });
-  const parapet = new THREE.Mesh(new THREE.BoxGeometry(w + 0.4, 1.0, d + 0.4), parapetMat);
+  const parapet = new THREE.Mesh(new THREE.BoxGeometry(w+0.4, 1.0, d+0.4), parapetMat);
   parapet.position.y = h + 0.5;
   group.add(parapet);
 
-  // Rooftop equipment (AC units, water towers etc.)
+  // Rooftop AC units
   if (h > 20) {
     const acMat = new THREE.MeshStandardMaterial({ color: 0x445566, roughness: 0.7 });
     for (let ai = 0; ai < 1 + Math.floor(Math.random()*3); ai++) {
-      const ac = new THREE.Mesh(
-        new THREE.BoxGeometry(w * 0.12, 1.8, d * 0.12),
-        acMat
-      );
-      ac.position.set(
-        (Math.random() - 0.5) * w * 0.6,
-        h + 1.4,
-        (Math.random() - 0.5) * d * 0.6
-      );
+      const ac = new THREE.Mesh(new THREE.BoxGeometry(w*0.12, 1.8, d*0.12), acMat);
+      ac.position.set((Math.random()-0.5)*w*0.6, h+1.4, (Math.random()-0.5)*d*0.6);
       group.add(ac);
     }
-
-    // Antenna / spire on tall buildings
+    // Antenna on tall buildings
     if (h > 35) {
       const spire = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.08, 0.08, h * 0.15, 4),
-        new THREE.MeshStandardMaterial({ color: 0x888899, metalness: 0.8, roughness: 0.3 })
+        new THREE.CylinderGeometry(0.07, 0.07, h*0.15, 4),
+        new THREE.MeshStandardMaterial({ color: 0x888899, metalness: 0.9, roughness: 0.2 })
       );
-      spire.position.y = h + 1 + h * 0.075;
+      spire.position.y = h + 1 + h*0.075;
       group.add(spire);
     }
   }
 
-  // ── GROUND FLOOR LOBBY (darker base) ──
-  const lobbyMat = new THREE.MeshStandardMaterial({
-    color: 0x0a0a12,
-    roughness: 0.3,
-    metalness: 0.6,
-  });
-  const lobby = new THREE.Mesh(new THREE.BoxGeometry(w + 0.1, 3.5, d + 0.1), lobbyMat);
+  // ── GROUND FLOOR LOBBY ──
+  const lobbyMat = new THREE.MeshStandardMaterial({ color: 0x0a0a12, roughness: 0.2, metalness: 0.7 });
+  const lobby = new THREE.Mesh(new THREE.BoxGeometry(w+0.1, 3.5, d+0.1), lobbyMat);
   lobby.position.y = 1.75;
   lobby.castShadow = true;
   group.add(lobby);
 
-  // Lobby glass entrance
+  // Lobby glass
   const lobbyGlass = new THREE.Mesh(
-    new THREE.PlaneGeometry(w * 0.4, 2.8),
+    new THREE.PlaneGeometry(w*0.4, 2.8),
     new THREE.MeshStandardMaterial({
-      color: 0x88ccff,
-      roughness: 0.0,
-      metalness: 1.0,
-      transparent: true,
-      opacity: 0.7,
+      color: 0x88ccff, roughness: 0.0, metalness: 1.0,
+      envMap: skyEnvMap, envMapIntensity: 2.0,
+      transparent: true, opacity: 0.8,
     })
   );
-  lobbyGlass.position.set(0, 1.4, d / 2 + 0.06);
+  lobbyGlass.position.set(0, 1.4, d/2 + 0.07);
   group.add(lobbyGlass);
 }
 
@@ -565,6 +554,38 @@ function drawMinimap() {
   mc.fill();
 }
 
+// ── COLLISION SYSTEM ──
+function resolveCollisions() {
+  // Building collisions
+  buildingBounds.forEach(b => {
+    const testX = Math.max(b.minX, Math.min(px, b.maxX));
+    const testZ = Math.max(b.minZ, Math.min(pz, b.maxZ));
+    const dx = px - testX, dz = pz - testZ;
+    const dist = Math.sqrt(dx*dx + dz*dz);
+    const radius = 1.5;
+    if (dist < radius) {
+      const push = radius - dist;
+      if (dist === 0) { pz = b.minZ - radius; }
+      else { px += (dx/dist)*push; pz += (dz/dist)*push; }
+      spd *= -0.2;
+    }
+  });
+
+  // AI car collisions
+  aiCars.forEach(ai => {
+    const dx = px - ai.position.x, dz = pz - ai.position.z;
+    const dist = Math.sqrt(dx*dx + dz*dz);
+    if (dist < 2.5 && dist > 0) {
+      const push = 2.5 - dist;
+      px += (dx/dist)*push*0.7;
+      pz += (dz/dist)*push*0.7;
+      ai.position.x -= (dx/dist)*push*0.3;
+      ai.position.z -= (dz/dist)*push*0.3;
+      spd *= -0.35;
+    }
+  });
+}
+
 // ── GAME LOOP ──
 const clock = new THREE.Clock();
 
@@ -586,6 +607,9 @@ function update(dt) {
 
   px += Math.sin(pa) * spd * dt;
   pz += Math.cos(pa) * spd * dt;
+
+  // Collisions
+  resolveCollisions();
 
   // Boundary
   const LIM = 590;
@@ -641,7 +665,13 @@ function update(dt) {
 
 function animate() {
   requestAnimationFrame(animate);
-  update(Math.min(clock.getDelta(), 0.05));
+  const dt = Math.min(clock.getDelta(), 0.05);
+  // Update cube camera for window reflections every 60 frames
+  if (Math.round(dt * 1000) % 3 === 0) {
+    cubeCamera.position.set(px, 5, pz);
+    cubeCamera.update(renderer, scene);
+  }
+  update(dt);
   renderer.render(scene, cam);
 }
 

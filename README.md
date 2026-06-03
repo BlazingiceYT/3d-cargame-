@@ -13,5 +13,3 @@ Update4 : Added proper collision. [30May]
 
 Update5 : Made building more realitic. [30May]
 
-Update6 beta:dfhreksdjhgfurieow2pqwlk hbgujio
-

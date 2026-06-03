@@ -19,9 +19,13 @@ body {
 
 /* ── CANVAS ── */
 #c {
-  display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
   width: 100vw;
   height: 100vh;
+  display: block;
+  z-index: 0;
 }
 
 /* ── LOADER ── */
@@ -118,18 +122,12 @@ body {
   position: fixed;
   top: 18px;
   left: 18px;
-  color: #ffffff55;
+  color: #ffffff88;
   font-size: 10px;
   letter-spacing: 1px;
   line-height: 2;
   pointer-events: none;
   z-index: 10;
-}
-
-#hud .label {
-  color: #00ffcc88;
-  font-size: 9px;
-  letter-spacing: 2px;
 }
 
 /* ── MINIMAP ── */

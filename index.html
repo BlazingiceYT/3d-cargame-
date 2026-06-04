@@ -8,7 +8,33 @@
 </head>
 <body>
 
-<div id="loader">
+<!-- MAP SELECTION SCREEN -->
+<div id="mapSelect">
+  <div id="mapSelectInner">
+    <h1>BLAZINGICE</h1>
+    <p class="subtitle">SELECT MAP</p>
+    <div id="mapGrid">
+      <div class="mapCard active" data-map="city" onclick="selectMap('city')">
+        <div class="mapPreview city"></div>
+        <div class="mapName">CITY NIGHT</div>
+        <div class="mapDesc">Urban streets · Neon lights · 18 AI cars</div>
+      </div>
+      <div class="mapCard" data-map="highway" onclick="selectMap('highway')">
+        <div class="mapPreview highway"></div>
+        <div class="mapName">HIGHWAY RUSH</div>
+        <div class="mapDesc">Coming soon</div>
+      </div>
+      <div class="mapCard" data-map="mountain" onclick="selectMap('mountain')">
+        <div class="mapPreview mountain"></div>
+        <div class="mapName">MOUNTAIN PASS</div>
+        <div class="mapDesc">Coming soon</div>
+      </div>
+    </div>
+    <button id="startBtn" onclick="startGame()">▶ START RACE</button>
+  </div>
+</div>
+
+<div id="loader" style="display:none">
   <h1>BLAZINGICE</h1>
   <p>City Racer</p>
   <div class="loader-bar"><div class="loader-fill"></div></div>
@@ -38,7 +64,29 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-<script src="game.js"></script>
+
+<script>
+let selectedMap = 'city';
+function selectMap(map) {
+  selectedMap = map;
+  document.querySelectorAll('.mapCard').forEach(c => c.classList.remove('active'));
+  document.querySelector(`[data-map="${map}"]`).classList.add('active');
+}
+function startGame() {
+  const ms = document.getElementById('mapSelect');
+  ms.style.opacity = '0';
+  ms.style.transition = 'opacity 0.5s';
+  setTimeout(() => {
+    ms.remove();
+    const loader = document.getElementById('loader');
+    loader.style.display = 'flex';
+    // Load game after short delay
+    const s = document.createElement('script');
+    s.src = 'game.js';
+    document.body.appendChild(s);
+  }, 500);
+}
+</script>
 
 </body>
 </html>

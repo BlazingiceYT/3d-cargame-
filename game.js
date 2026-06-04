@@ -49,10 +49,24 @@ const matGrass = new THREE.MeshStandardMaterial({ color: 0x3d6e35, roughness: 0.
 const matDirt  = new THREE.MeshStandardMaterial({ color: 0x7a5c30, roughness: 0.98 });
 const matPave  = new THREE.MeshStandardMaterial({ color: 0x888890, roughness: 0.85 });
 
-// ── GROUND ──
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), matGrass);
-ground.rotation.x = -Math.PI / 2;
-ground.receiveShadow = true;
+// ── BUMPY GRASS TERRAIN ──
+const terrainGeo = new THREE.PlaneGeometry(1400, 1400, 80, 80);
+// Displace vertices to create bumps
+const pos = terrainGeo.attributes.position;
+for(let i=0; i<pos.count; i++){
+  const x=pos.getX(i), z=pos.getY(i); // Y is Z before rotation
+  // Flat in city area, bumpy outside
+  const distFromCenter=Math.sqrt(x*x+z*z);
+  const bumpStrength=Math.min(1, Math.max(0,(distFromCenter-130)/100));
+  const bump=(Math.sin(x*0.15)*Math.cos(z*0.18)+Math.sin(x*0.3+z*0.2)*0.5)*1.8;
+  pos.setZ(i, bump*bumpStrength);
+}
+terrainGeo.computeVertexNormals();
+const ground=new THREE.Mesh(terrainGeo,
+  new THREE.MeshStandardMaterial({color:0x3d6e35,roughness:0.95})
+);
+ground.rotation.x=-Math.PI/2;
+ground.receiveShadow=true;
 scene.add(ground);
 
 for (let i = 0; i < 35; i++) {
@@ -397,9 +411,12 @@ function makeLight(x, z) {
 
 // Collect all light positions
 const lightPositions = [];
+const lampBounds = []; // for collision
 GL.forEach(x => GL.forEach(z => {
   lightPositions.push([x+7.5, z+7.5]);
   lightPositions.push([x-7.5, z-7.5]);
+  lampBounds.push({x:x+7.5, z:z+7.5});
+  lampBounds.push({x:x-7.5, z:z-7.5});
 }));
 
 // Instanced pole mesh (one draw call for all poles)
@@ -587,8 +604,15 @@ function bindBtn(id,key){
 bindBtn('gg','gas');bindBtn('bg','brake');bindBtn('bl','left');bindBtn('br','right');
 
 // ── PHYSICS ──
-let spd=0,px=0,pz=0,pa=0,steer=0;
-const MAXS=30,ACC=14,BRK=24,FRIC=7,SS=0.9,MS=0.22,TF=0.013;
+let spd=0, px=0, pz=0, pa=0, steer=0;
+let velX=0, velZ=0;         // actual velocity vector for drift
+let driftAngle=0;           // difference between heading and velocity
+let isDrifting=false;
+
+const MAXS=30, ACC=14, BRK=24, FRIC=6;
+const SS=0.6,  MS=0.18,  TF=0.010; // softer steering
+const GRIP=8;        // how quickly car snaps to heading (lower = more drift)
+const DRIFT_GRIP=2;  // grip when drifting
 
 // CHANGE 3: Smooth slow minimap
 const mmEl=document.getElementById('mm');
@@ -654,6 +678,7 @@ function drawMinimap(dt){
 
 // ── COLLISION SYSTEM ──
 function resolveCollisions(){
+  // Buildings
   buildingBounds.forEach(b=>{
     const testX=Math.max(b.minX,Math.min(px,b.maxX));
     const testZ=Math.max(b.minZ,Math.min(pz,b.maxZ));
@@ -664,9 +689,20 @@ function resolveCollisions(){
       const push=radius-dist;
       if(dist===0){pz=b.minZ-radius;}
       else{px+=(dx/dist)*push; pz+=(dz/dist)*push;}
-      spd*=-0.2;
+      spd*=-0.2; velX*=-0.2; velZ*=-0.2;
     }
   });
+  // Lampposts
+  lampBounds.forEach(l=>{
+    const dx=px-l.x, dz=pz-l.z;
+    const dist=Math.sqrt(dx*dx+dz*dz);
+    if(dist<1.0&&dist>0){
+      px+=(dx/dist)*(1.0-dist);
+      pz+=(dz/dist)*(1.0-dist);
+      spd*=-0.3; velX*=-0.3; velZ*=-0.3;
+    }
+  });
+  // AI cars
   aiCars.forEach(ai=>{
     const dx=px-ai.position.x, dz=pz-ai.position.z;
     const dist=Math.sqrt(dx*dx+dz*dz);
@@ -674,7 +710,7 @@ function resolveCollisions(){
       const push=2.5-dist;
       px+=(dx/dist)*push*0.7; pz+=(dz/dist)*push*0.7;
       ai.position.x-=(dx/dist)*push*0.3; ai.position.z-=(dz/dist)*push*0.3;
-      spd*=-0.35;
+      spd*=-0.35; velX*=-0.35; velZ*=-0.35;
     }
   });
 }
@@ -683,30 +719,57 @@ function resolveCollisions(){
 const clock=new THREE.Clock();
 
 function update(dt){
+  // Acceleration
   if(K.gas)        spd=Math.min(spd+ACC*dt,MAXS);
   else if(K.brake) spd=Math.max(spd-BRK*dt,-MAXS*0.35);
   else{if(spd>0)spd=Math.max(0,spd-FRIC*dt);if(spd<0)spd=Math.min(0,spd+FRIC*dt);}
 
-  if(K.left)       steer=Math.min(steer+SS*dt,MS);
-  else if(K.right) steer=Math.max(steer-SS*dt,-MS);
-  else             steer*=(1-5*dt);
+  // Steering — speed-sensitive (less sharp at high speed)
+  const speedFactor=Math.max(0.3,1-Math.abs(spd)/MAXS*0.6);
+  if(K.left)       steer=Math.min(steer+SS*speedFactor*dt, MS*speedFactor);
+  else if(K.right) steer=Math.max(steer-SS*speedFactor*dt,-MS*speedFactor);
+  else             steer*=(1-6*dt);
+
+  // Drift — brake while turning at speed
+  const wantDrift=K.brake&&Math.abs(spd)>8&&Math.abs(steer)>0.05;
+  isDrifting=wantDrift;
+  const grip=isDrifting?DRIFT_GRIP:GRIP;
 
   if(Math.abs(spd)>0.3) pa+=steer*spd*TF;
-  px+=Math.sin(pa)*spd*dt;
-  pz+=Math.cos(pa)*spd*dt;
+
+  // Target velocity = car heading direction
+  const targetVX=Math.sin(pa)*spd;
+  const targetVZ=Math.cos(pa)*spd;
+
+  // Actual velocity lerps toward target (grip controls how fast)
+  velX+=(targetVX-velX)*grip*dt;
+  velZ+=(targetVZ-velZ)*grip*dt;
+
+  px+=velX*dt;
+  pz+=velZ*dt;
 
   resolveCollisions();
+
+  // Bumpy terrain — slight Y oscillation off road
+  const onRoad=GL.some(g=>Math.abs(px-g)<6||Math.abs(pz-g)<6);
+  const bumpY=onRoad?0:Math.sin(px*0.3)*Math.cos(pz*0.3)*0.4;
 
   const LIM=590;
   if(px>LIM){px=LIM;spd*=0.3;}if(px<-LIM){px=-LIM;spd*=0.3;}
   if(pz>LIM){pz=LIM;spd*=0.3;}if(pz<-LIM){pz=-LIM;spd*=0.3;}
 
-  player.position.set(px,0,pz);
+  player.position.set(px,bumpY,pz);
   player.rotation.y=pa;
+  // Tilt car on bumps
+  player.rotation.x=onRoad?0:Math.sin(px*0.3)*0.04;
+  player.rotation.z=onRoad?0:Math.cos(pz*0.3)*0.04;
 
+  // Camera — wider when drifting
+  const camDist=isDrifting?16:12;
+  const camH=isDrifting?6:5;
   const cosA=Math.cos(pa),sinA=Math.sin(pa);
-  cam.position.lerp(new THREE.Vector3(px-sinA*12,5,pz-cosA*12),5*dt);
-  cam.lookAt(px+sinA*8,0.8,pz+cosA*8);
+  cam.position.lerp(new THREE.Vector3(px-sinA*camDist,camH+bumpY,pz-cosA*camDist),5*dt);
+  cam.lookAt(px+sinA*8,0.8+bumpY,pz+cosA*8);
 
   aiCars.forEach(c=>{
     const wp=WPS[c.userData.wpIdx%WPS.length];
@@ -800,13 +863,11 @@ window.addEventListener('resize',()=>{
 animate();
 
 // Bake window reflections ONCE after everything loads, then remove cube camera
-// This captures the sky + buildings into the env map permanently — zero ongoing cost
 setTimeout(()=>{
   cubeCamera.position.set(0, 10, 0);
   scene.background = new THREE.Color(0x0a0a1a);
   cubeCamera.update(renderer, scene);
-  scene.remove(cubeCamera); // remove after bake — never runs again
+  scene.remove(cubeCamera);
   const l=document.getElementById('loader');
-  l.style.opacity='0';
-  setTimeout(()=>l.remove(),700);
+  if(l){ l.style.opacity='0'; setTimeout(()=>{ if(l.parentNode)l.remove(); },700); }
 },1400);

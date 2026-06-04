@@ -457,8 +457,8 @@ function updateNearestLights() {
 // ── TREES — InstancedMesh for trunk and canopy ──
 const treePositions = [];
 for (let t = 130; t < 560; t += 14) {
-  treePositions.push([9,t],[−9,t],[9,−t],[−9,−t]);
-  treePositions.push([t,9],[t,−9],[−t,9],[−t,−9]);
+  treePositions.push([9,t],[-9,t],[9,-t],[-9,-t]);
+  treePositions.push([t,9],[t,-9],[-t,9],[-t,-9]);
 }
 for (let i = 0; i < 120; i++) {
   const a = Math.random()*Math.PI*2, r = 175+Math.random()*410;
@@ -681,6 +681,7 @@ function resolveCollisions(){
 
 // ── GAME LOOP ──
 const clock=new THREE.Clock();
+let lightUpdateTimer=0;
 
 function update(dt){
   if(K.gas)        spd=Math.min(spd+ACC*dt,MAXS);
@@ -739,14 +740,26 @@ function update(dt){
     c.position.z=Math.max(-590,Math.min(590,c.position.z));
   });
 
-  trees.forEach(t=>{
-    if(!t.userData.alive){
-      if(t.userData.fall<Math.PI/2){t.userData.fall+=0.04;t.rotation.z=t.userData.dir*t.userData.fall;}
+  // Trees (instanced — tilt fallen trees via matrix)
+  trees.forEach((t, i) => {
+    if (!t.userData.alive) {
+      if (t.userData.fall < Math.PI/2) {
+        t.userData.fall += 0.04;
+        _dummy.position.set(t.position.x, 6.5 - t.userData.fall * 4, t.position.z);
+        _dummy.rotation.set(t.userData.dir * t.userData.fall, 0, 0);
+        _dummy.scale.set(1,1,1); _dummy.updateMatrix();
+        canopyInst.setMatrixAt(i, _dummy.matrix);
+        canopyInst.instanceMatrix.needsUpdate = true;
+      }
       return;
     }
-    const dx=px-t.position.x,dz=pz-t.position.z;
-    if(dx*dx+dz*dz<7)t.userData.alive=false;
+    const dx = px - t.position.x, dz = pz - t.position.z;
+    if (dx*dx + dz*dz < 7) t.userData.alive = false;
   });
+
+  // Dynamic nearest street lights (update every 0.4s)
+  lightUpdateTimer += dt;
+  if (lightUpdateTimer > 0.4) { lightUpdateTimer = 0; updateNearestLights(); }
 
   document.getElementById('sv').textContent=Math.abs(Math.round(spd*3.6));
   sun.position.set(px+100,200,pz+100);

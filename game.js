@@ -133,12 +133,16 @@ for (let i = 0; i < 72; i++) {
   scene.add(seg);
 }
 
-// CHANGE 2: Remove CubeCamera (was rendering scene twice = huge lag)
-// Replace with a simple static sky colour env map using DataTexture
-const skyData = new Uint8Array([135, 206, 235, 255]); // sky blue RGBA
-const skyTex = new THREE.DataTexture(skyData, 1, 1, THREE.RGBAFormat);
-skyTex.needsUpdate = true;
-const skyEnvMap = skyTex;
+// CHANGE 2: Bake window reflections once at load using CubeCamera
+// Positioned at city center, rendered once, then removed — zero ongoing cost
+const cubeRT = new THREE.WebGLCubeRenderTarget(256, {
+  format: THREE.RGBFormat,
+  generateMipmaps: true,
+  minFilter: THREE.LinearMipmapLinearFilter,
+});
+const cubeCamera = new THREE.CubeCamera(0.1, 1000, cubeRT);
+scene.add(cubeCamera);
+const skyEnvMap = cubeRT.texture;
 
 // ═══════════════════════════════════════════════
 // REALISTIC BUILDINGS WITH REFLECTIVE WINDOWS
@@ -547,6 +551,22 @@ function update(dt){
     c.position.x+=Math.sin(c.userData.angle)*c.userData.spd*dt;
     c.position.z+=Math.cos(c.userData.angle)*c.userData.spd*dt;
     c.rotation.y=c.userData.angle;
+
+    // AI building collision — push out of buildings
+    buildingBounds.forEach(b=>{
+      const tx=Math.max(b.minX,Math.min(c.position.x,b.maxX));
+      const tz=Math.max(b.minZ,Math.min(c.position.z,b.maxZ));
+      const dx=c.position.x-tx, dz=c.position.z-tz;
+      const dist=Math.sqrt(dx*dx+dz*dz);
+      if(dist<1.5&&dist>0){
+        c.position.x+=(dx/dist)*(1.5-dist);
+        c.position.z+=(dz/dist)*(1.5-dist);
+        c.userData.angle+=Math.PI*0.25; // nudge angle so they don't get stuck
+      } else if(dist===0){
+        c.position.x=b.maxX+1.5;
+      }
+    });
+
     c.position.x=Math.max(-590,Math.min(590,c.position.x));
     c.position.z=Math.max(-590,Math.min(590,c.position.z));
   });
@@ -567,9 +587,26 @@ function update(dt){
   drawMinimap(dt);
 }
 
+// ── FPS COUNTER ──
+const fpsEl = document.createElement('div');
+fpsEl.style.cssText = 'position:fixed;top:18px;right:18px;color:#00ffcc;font-family:monospace;font-size:11px;letter-spacing:2px;background:rgba(0,0,0,0.5);padding:4px 10px;border-radius:4px;pointer-events:none;z-index:10;';
+document.body.appendChild(fpsEl);
+let fpsFrames=0, fpsTime=0, fpsVal=0;
+
 function animate(){
   requestAnimationFrame(animate);
   const dt=Math.min(clock.getDelta(),0.05);
+
+  // FPS tracking
+  fpsFrames++;
+  fpsTime+=dt;
+  if(fpsTime>=0.5){
+    fpsVal=Math.round(fpsFrames/fpsTime);
+    fpsEl.textContent=fpsVal+' FPS';
+    fpsEl.style.color=fpsVal>=50?'#00ffcc':fpsVal>=30?'#ffcc00':'#ff4444';
+    fpsFrames=0; fpsTime=0;
+  }
+
   update(dt);
   renderer.render(scene,cam);
 }
@@ -581,7 +618,13 @@ window.addEventListener('resize',()=>{
 });
 
 animate();
+
+// Bake window reflections ONCE after everything loads, then remove cube camera
+// This captures the sky + buildings into the env map permanently — zero ongoing cost
 setTimeout(()=>{
+  cubeCamera.position.set(0, 10, 0);
+  cubeCamera.update(renderer, scene);
+  scene.remove(cubeCamera); // remove after bake — never runs again
   const l=document.getElementById('loader');
   l.style.opacity='0';
   setTimeout(()=>l.remove(),700);

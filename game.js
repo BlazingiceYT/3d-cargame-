@@ -393,35 +393,107 @@ function makeLight(x, z) {
   g.position.set(x, 0, z);
   scene.add(g);
 }
-GL.forEach(x => GL.forEach(z => { makeLight(x+7.5, z+7.5); makeLight(x-7.5, z-7.5); }));
+// ── STREET LIGHTS — InstancedMesh + dynamic PointLights near player ──
 
-// ── DESTRUCTIBLE TREES ──
-const trees = [];
-function makeTree(x, z) {
-  const g = new THREE.Group();
-  const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.2, 0.35, 3, 6),
-    new THREE.MeshStandardMaterial({ color: 0x5c3d1e, roughness: 0.95 })
-  );
-  trunk.position.y = 1.5; trunk.castShadow = true; g.add(trunk);
-  const shades = [0x1e4d2b, 0x2d6a4f, 0x1a5c38, 0x38855a];
-  const top = new THREE.Mesh(
-    new THREE.ConeGeometry(2.5, 6, 7),
-    new THREE.MeshStandardMaterial({ color: shades[Math.floor(Math.random()*shades.length)], roughness: 0.9 })
-  );
-  top.position.y = 6.5; top.castShadow = true; g.add(top);
-  g.position.set(x, 0, z);
-  g.userData = { alive: true, fall: 0, dir: Math.random() > 0.5 ? 1 : -1 };
-  scene.add(g); trees.push(g);
+// Collect all light positions
+const lightPositions = [];
+GL.forEach(x => GL.forEach(z => {
+  lightPositions.push([x+7.5, z+7.5]);
+  lightPositions.push([x-7.5, z-7.5]);
+}));
+
+// Instanced pole mesh (one draw call for all poles)
+const poleGeo  = new THREE.CylinderGeometry(0.08, 0.12, 8, 5);
+const poleMat2 = new THREE.MeshStandardMaterial({ color: 0x8B0000, roughness: 0.6 });
+const poleInst = new THREE.InstancedMesh(poleGeo, poleMat2, lightPositions.length);
+poleInst.castShadow = true;
+const _dummy = new THREE.Object3D();
+lightPositions.forEach(([lx, lz], i) => {
+  _dummy.position.set(lx, 4, lz);
+  _dummy.updateMatrix();
+  poleInst.setMatrixAt(i, _dummy.matrix);
+});
+poleInst.instanceMatrix.needsUpdate = true;
+scene.add(poleInst);
+
+// Instanced lantern glows — emissive only, no real lights
+const lanternGeo  = new THREE.SphereGeometry(0.35, 6, 5);
+const lanternMat2 = new THREE.MeshStandardMaterial({ color: 0xff2200, emissive: 0xff2200, emissiveIntensity: 1.2, roughness: 0.6 });
+const lanternInst = new THREE.InstancedMesh(lanternGeo, lanternMat2, lightPositions.length);
+lanternInst.scale.y = 1.4;
+lightPositions.forEach(([lx, lz], i) => {
+  _dummy.position.set(lx, 7.2, lz);
+  _dummy.updateMatrix();
+  lanternInst.setMatrixAt(i, _dummy.matrix);
+});
+lanternInst.instanceMatrix.needsUpdate = true;
+scene.add(lanternInst);
+
+// Only 6 real PointLights — moved to nearest streetlights each frame
+const NUM_REAL_LIGHTS = 6;
+const realLights = [];
+for (let i = 0; i < NUM_REAL_LIGHTS; i++) {
+  const pt = new THREE.PointLight(0xff8833, 2.5, 30);
+  pt.castShadow = false; // no shadow from street lights = big perf win
+  scene.add(pt);
+  realLights.push(pt);
 }
-for (let t = 130; t < 560; t += 12) {
-  makeTree(9,t); makeTree(-9,t); makeTree(9,-t); makeTree(-9,-t);
-  makeTree(t,9); makeTree(t,-9); makeTree(-t,9); makeTree(-t,-9);
+
+// Update real lights to follow nearest street lights to player
+let lightUpdateTimer = 0;
+function updateNearestLights() {
+  // Sort light positions by distance to player, take nearest NUM_REAL_LIGHTS
+  const sorted = lightPositions
+    .map(([lx, lz]) => ({ lx, lz, d: (lx-px)**2 + (lz-pz)**2 }))
+    .sort((a, b) => a.d - b.d);
+  realLights.forEach((light, i) => {
+    if (sorted[i]) {
+      light.position.set(sorted[i].lx, 7, sorted[i].lz);
+      light.visible = sorted[i].d < 3600; // only visible within ~60 units
+    }
+  });
 }
-for (let i = 0; i < 200; i++) {
+
+// ── TREES — InstancedMesh for trunk and canopy ──
+const treePositions = [];
+for (let t = 130; t < 560; t += 14) {
+  treePositions.push([9,t],[−9,t],[9,−t],[−9,−t]);
+  treePositions.push([t,9],[t,−9],[−t,9],[−t,−9]);
+}
+for (let i = 0; i < 120; i++) {
   const a = Math.random()*Math.PI*2, r = 175+Math.random()*410;
-  makeTree(Math.cos(a)*r, Math.sin(a)*r);
+  treePositions.push([Math.cos(a)*r, Math.sin(a)*r]);
 }
+
+// Instanced trunk
+const trunkGeo2  = new THREE.CylinderGeometry(0.2, 0.35, 3, 5);
+const trunkMat2  = new THREE.MeshLambertMaterial({ color: 0x5c3d1e });
+const trunkInst  = new THREE.InstancedMesh(trunkGeo2, trunkMat2, treePositions.length);
+
+// Instanced canopy
+const canopyGeo2 = new THREE.ConeGeometry(2.5, 6, 6);
+const canopyMat2 = new THREE.MeshLambertMaterial({ color: 0x1e4d2b });
+const canopyInst = new THREE.InstancedMesh(canopyGeo2, canopyMat2, treePositions.length);
+canopyInst.castShadow = true;
+
+treePositions.forEach(([tx, tz], i) => {
+  _dummy.position.set(tx, 1.5, tz); _dummy.rotation.set(0,0,0); _dummy.scale.set(1,1,1);
+  _dummy.updateMatrix(); trunkInst.setMatrixAt(i, _dummy.matrix);
+  _dummy.position.set(tx, 6.5, tz);
+  _dummy.updateMatrix(); canopyInst.setMatrixAt(i, _dummy.matrix);
+});
+trunkInst.instanceMatrix.needsUpdate = true;
+canopyInst.instanceMatrix.needsUpdate = true;
+scene.add(trunkInst); scene.add(canopyInst);
+
+// For collision we still need individual positions — just use treePositions array
+const trees = treePositions.map(([tx, tz]) => ({
+  position: { x: tx, z: tz },
+  userData: { alive: true, fall: 0, dir: Math.random()>0.5?1:-1 },
+  // We'll hide fallen trees by moving them underground via matrix
+  idx: 0,
+}));
+trees.forEach((t, i) => t.idx = i);
 
 // ── PLAYER CAR ──
 const player = new THREE.Group();

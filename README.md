@@ -14,3 +14,5 @@ Update4 : Added proper collision. [30May2026]
 Update5 : Made building more realitic. [30May2026]
 
 Update6 : Added reflections and added java and css [ 4Jun2026]
+
+Update7 : Fixed lag issues and added map selection.[beta]

@@ -681,7 +681,6 @@ function resolveCollisions(){
 
 // ── GAME LOOP ──
 const clock=new THREE.Clock();
-let lightUpdateTimer=0;
 
 function update(dt){
   if(K.gas)        spd=Math.min(spd+ACC*dt,MAXS);

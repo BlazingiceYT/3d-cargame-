@@ -142,7 +142,6 @@ function addPagodaRoof(g,y,w,d,color){
 
 function addNeonSign(g,y,w,col){
   const nm=new THREE.MeshStandardMaterial({color:col,emissive:new THREE.Color(col),emissiveIntensity:2.0,roughness:0.1});
-  g.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(w*0.7,0.3,0.15),nm),{position:{set:(x,yy,z)=>{}}}) );
   const bar=new THREE.Mesh(new THREE.BoxGeometry(w*0.7,0.3,0.15),nm); bar.position.set(0,y,0); g.add(bar);
   for(let i=0;i<3;i++){ const vb=new THREE.Mesh(new THREE.BoxGeometry(0.2,2.5,0.15),nm.clone()); vb.position.set(-w*0.25+i*w*0.25,y-1.5,0); g.add(vb); }
 }
@@ -352,7 +351,8 @@ for(let i=0;i<18;i++){
   const g=new THREE.Group();
   const b=new THREE.Mesh(new THREE.BoxGeometry(2,0.7,3.8),new THREE.MeshStandardMaterial({color:AI_COLORS[i%AI_COLORS.length],roughness:0.3,metalness:0.4}));
   b.position.y=0.65; b.castShadow=true; g.add(b);
-  g.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(1.5,0.5,2),new THREE.MeshStandardMaterial({color:0x111822})),{position:{x:0,y:1.2,z:-0.1}}));
+  const cab=new THREE.Mesh(new THREE.BoxGeometry(1.5,0.5,2),new THREE.MeshStandardMaterial({color:0x111822}));
+  cab.position.set(0,1.2,-0.1); g.add(cab);
   const wp=WPS[Math.floor(Math.random()*WPS.length)];
   g.position.set(wp[0]+(Math.random()-0.5)*5,0,wp[1]+(Math.random()-0.5)*5);
   g.userData={wpIdx:Math.floor(Math.random()*WPS.length),spd:i<5?20+Math.random()*10:7+Math.random()*8,angle:Math.random()*Math.PI*2,isRacer:i<5};
@@ -589,7 +589,6 @@ function update(dt){
 
   updateNitroEffect(dt);
   lightTimer+=dt; if(lightTimer>0.4){lightTimer=0;updateNearestLights();}
-  updateNitroEffect(dt);
   sun.position.set(px+100,200,pz+100); sun.target.position.set(px,0,pz);
 
   const kmh=Math.abs(Math.round(spd*3.6));

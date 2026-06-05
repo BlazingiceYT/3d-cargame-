@@ -54,30 +54,33 @@ const TERRAIN_SEGS = 100;
 const terrainGeo = new THREE.PlaneGeometry(1400, 1400, TERRAIN_SEGS, TERRAIN_SEGS);
 const tPos = terrainGeo.attributes.position;
 
-// Height function — deterministic so we can sample it at runtime
+// Height function — mostly flat, occasional bumps outside city
 function terrainHeight(wx, wz) {
   const distFromCenter = Math.sqrt(wx*wx + wz*wz);
-  const bumpStrength = Math.min(1, Math.max(0, (distFromCenter - 130) / 100));
-  return (Math.sin(wx*0.15)*Math.cos(wz*0.18) + Math.sin(wx*0.3+wz*0.2)*0.5) * 2.5 * bumpStrength;
+  const bumpStrength = Math.min(1, Math.max(0, (distFromCenter - 140) / 80));
+  // Sparse bumps using large wavelength sin — mostly flat between them
+  const bump =
+    Math.sin(wx*0.04) * Math.cos(wz*0.05) * 1.2 +
+    Math.sin(wx*0.09 + wz*0.07) * 0.6;
+  return bump * bumpStrength;
 }
 
-// Apply heights to terrain mesh
+// Apply heights
 for (let i = 0; i < tPos.count; i++) {
   const wx = tPos.getX(i);
-  const wz = tPos.getY(i); // before rotation Y=Z
+  const wz = tPos.getY(i);
   tPos.setZ(i, terrainHeight(wx, wz));
 }
 terrainGeo.computeVertexNormals();
 
-// Vertex colors — darker in valleys, lighter on peaks
+// Vertex colors — dark green base, brighter on bumps
 const colors = new Float32Array(tPos.count * 3);
 for (let i = 0; i < tPos.count; i++) {
   const h = tPos.getZ(i);
-  const t = (h + 2.5) / 5.0; // 0..1
-  // Mix dark green valley → bright green peak
-  colors[i*3]   = 0.15 + t * 0.12;
-  colors[i*3+1] = 0.30 + t * 0.25;
-  colors[i*3+2] = 0.10 + t * 0.08;
+  const t = Math.max(0, Math.min(1, (h + 1.5) / 3.0));
+  colors[i*3]   = 0.13 + t * 0.10;
+  colors[i*3+1] = 0.28 + t * 0.22;
+  colors[i*3+2] = 0.08 + t * 0.06;
 }
 terrainGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
@@ -267,7 +270,7 @@ function makeBuilding(x, z, w, d, h) {
   group.position.set(x, 0, z);
   scene.add(group);
 
-  buildingBounds.push({ minX: x-w/2, maxX: x+w/2, minZ: z-d/2, maxZ: z+d/2 });
+  buildingBounds.push({ minX: x-w/2, maxX: x+w/2, minZ: z-d/2, maxZ: z+d/2, h: h });
 
   // ── MAIN BODY ──
   const bodyMat = new THREE.MeshStandardMaterial({
@@ -599,18 +602,20 @@ for(let i=0;i<18;i++){
 }
 
 // ── INPUT ──
-const K={gas:false,brake:false,left:false,right:false};
+const K={gas:false,brake:false,left:false,right:false,nitro:false};
 document.addEventListener('keydown',e=>{
   if(e.key==='ArrowUp'||e.key==='w')K.gas=true;
   if(e.key==='ArrowDown'||e.key==='s')K.brake=true;
   if(e.key==='ArrowLeft'||e.key==='a')K.left=true;
   if(e.key==='ArrowRight'||e.key==='d')K.right=true;
+  if(e.key==='Shift')K.nitro=true;
 });
 document.addEventListener('keyup',e=>{
   if(e.key==='ArrowUp'||e.key==='w')K.gas=false;
   if(e.key==='ArrowDown'||e.key==='s')K.brake=false;
   if(e.key==='ArrowLeft'||e.key==='a')K.left=false;
   if(e.key==='ArrowRight'||e.key==='d')K.right=false;
+  if(e.key==='Shift')K.nitro=false;
 });
 function bindBtn(id,key){
   const el=document.getElementById(id);
@@ -621,8 +626,34 @@ function bindBtn(id,key){
   el.addEventListener('mousedown',on);el.addEventListener('mouseup',off);el.addEventListener('mouseleave',off);
 }
 bindBtn('gg','gas');bindBtn('bg','brake');bindBtn('bl','left');bindBtn('br','right');
+bindBtn('nitroBtn','nitro');
 
-// ── PHYSICS ──
+// ── TIRE MARKS ──
+const tireMarkMat = new THREE.MeshBasicMaterial({ color:0x111111, transparent:true, opacity:0.6, depthWrite:false });
+const tireMarks = [];
+const MAX_MARKS = 300;
+let markTimer = 0;
+
+function addTireMark(x, z, angle){
+  markTimer += 1;
+  if(markTimer % 3 !== 0) return; // every 3rd frame only
+  if(tireMarks.length > MAX_MARKS){
+    const old = tireMarks.shift();
+    scene.remove(old);
+    old.geometry.dispose();
+  }
+  const mark = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.4, 1.4),
+    tireMarkMat.clone()
+  );
+  mark.rotation.x = -Math.PI/2;
+  mark.rotation.z = angle;
+  mark.position.set(x, 0.02, z);
+  scene.add(mark);
+  tireMarks.push(mark);
+  // Fade old marks
+  tireMarks.forEach((m,i)=>{ m.material.opacity = Math.min(0.6, i/tireMarks.length*0.6); });
+}
 let spd=0, px=0, pz=0, pa=0, steer=0;
 let velX=0, velZ=0;
 let isDrifting=false;
@@ -632,15 +663,16 @@ let carY=0, velY=0;
 let onGround=true;
 const GRAVITY = -18;
 
-const MAXS = 139;    // ~500 km/h in world units/s
-const ACC  = 55;     // strong acceleration
-const BRK  = 80;
-const FRIC = 10;
+const MAXS = 41.7;   // 150 km/h in world units (1 unit/s = 3.6 km/h)
+const NITRO_MAXS = 55.6; // 200 km/h with nitro
+const ACC  = 12;     // lower acceleration
+const BRK  = 30;
+const FRIC = 7;
 const SS=0.6, MS=0.18, TF=0.008;
 const GRIP=9, DRIFT_GRIP=2;
 
-// Gear ratios — 6 gears
-const GEAR_SPEEDS=[0,18,40,70,95,115,139]; // world units/s per gear threshold
+// Gear ratios — 6 gears (matched to 150 km/h max)
+const GEAR_SPEEDS=[0,5,12,20,29,36,41.7];
 
 // CHANGE 3: Smooth slow minimap
 const mmEl=document.getElementById('mm');
@@ -746,7 +778,7 @@ function resolveCollisions(){
 // ── SPEEDOMETER CANVAS ──
 const spdCanvas = document.createElement('canvas');
 spdCanvas.width = 200; spdCanvas.height = 200;
-spdCanvas.style.cssText = 'position:fixed;bottom:220px;right:16px;width:160px;height:160px;z-index:10;pointer-events:none;';
+spdCanvas.style.cssText = 'position:fixed;bottom:16px;right:16px;width:160px;height:160px;z-index:10;pointer-events:none;';
 document.body.appendChild(spdCanvas);
 const sctx = spdCanvas.getContext('2d');
 
@@ -760,7 +792,7 @@ function drawSpeedometer(kmh, gear, rpmPct) {
   sctx.strokeStyle='#ffffff11'; sctx.lineWidth=14; sctx.stroke();
 
   // Speed arc — green to red
-  const maxKmh=500;
+  const maxKmh=200;
   const spdAngle=Math.PI*0.75+(kmh/maxKmh)*Math.PI*1.5;
   const grad=sctx.createLinearGradient(cx-r,cy,cx+r,cy);
   grad.addColorStop(0,'#00ffcc');
@@ -814,16 +846,27 @@ function drawSpeedometer(kmh, gear, rpmPct) {
     sctx.font='bold 10px monospace';
     sctx.fillText('DRIFT',cx,cy-44);
   }
+  if(K.nitro){
+    sctx.fillStyle='#00aaff';
+    sctx.font='bold 10px monospace';
+    sctx.fillText('NITRO',cx,cy-58);
+  }
 }
 
 // ── GAME LOOP ──
 const clock=new THREE.Clock();
 
 function update(dt){
+  // Nitro
+  const curMax = K.nitro ? NITRO_MAXS : MAXS;
+
   // Acceleration
-  if(K.gas)        spd=Math.min(spd+ACC*dt,MAXS);
+  if(K.gas)        spd=Math.min(spd+ACC*dt, curMax);
   else if(K.brake) spd=Math.max(spd-BRK*dt,-MAXS*0.3);
   else{if(spd>0)spd=Math.max(0,spd-FRIC*dt);if(spd<0)spd=Math.min(0,spd+FRIC*dt);}
+
+  // Clamp to current max
+  if(!K.nitro && spd > MAXS) spd = Math.max(MAXS, spd - FRIC*dt);
 
   // Speed-sensitive steering
   const speedFactor=Math.max(0.25,1-Math.abs(spd)/MAXS*0.75);
@@ -831,10 +874,11 @@ function update(dt){
   else if(K.right) steer=Math.max(steer-SS*speedFactor*dt,-MS*speedFactor);
   else             steer*=(1-6*dt);
 
-  // Drift
-  const wantDrift=K.brake&&Math.abs(spd)>20&&Math.abs(steer)>0.04;
+  // Drift — reduce speed while drifting
+  const wantDrift=K.brake&&Math.abs(spd)>10&&Math.abs(steer)>0.04;
   isDrifting=wantDrift;
   const grip=isDrifting?DRIFT_GRIP:GRIP;
+  if(isDrifting) spd*=(1-1.5*dt); // friction during drift
 
   if(Math.abs(spd)>0.3) pa+=steer*spd*TF;
 
@@ -847,7 +891,59 @@ function update(dt){
   px+=velX*dt;
   pz+=velZ*dt;
 
-  resolveCollisions();
+  // Tire marks when drifting on ground
+  if(isDrifting && onGround && Math.abs(spd)>5){
+    addTireMark(px, pz, pa);
+  }
+
+  // Building collision — launch car UP instead of just pushing sideways
+  buildingBounds.forEach(b=>{
+    const testX=Math.max(b.minX,Math.min(px,b.maxX));
+    const testZ=Math.max(b.minZ,Math.min(pz,b.maxZ));
+    const dx=px-testX, dz=pz-testZ;
+    const dist=Math.sqrt(dx*dx+dz*dz);
+    const radius=1.5;
+    if(dist<radius){
+      // Check if car is below building roof (carY < building height)
+      const bHeight = b.h || 20;
+      if(carY < bHeight - 1){
+        // Car is hitting the side — launch up
+        if(dist>0){px+=(dx/dist)*(radius-dist);pz+=(dz/dist)*(radius-dist);}
+        else{pz=b.minZ-radius;}
+        velY=Math.max(velY, Math.abs(spd)*0.3+5);
+        onGround=false;
+        spd*=0.7; velX*=0.7; velZ*=0.7;
+      } else {
+        // Car is on top of building — land on roof
+        carY=bHeight;
+        if(velY<0) velY=0;
+        onGround=true;
+      }
+    }
+  });
+
+  // Lampposts
+  lampBounds.forEach(l=>{
+    const dx=px-l.x, dz=pz-l.z;
+    const dist=Math.sqrt(dx*dx+dz*dz);
+    if(dist<1.0&&dist>0){
+      px+=(dx/dist)*(1.0-dist);
+      pz+=(dz/dist)*(1.0-dist);
+      spd*=-0.3; velX*=-0.3; velZ*=-0.3;
+    }
+  });
+
+  // AI cars
+  aiCars.forEach(ai=>{
+    const dx=px-ai.position.x, dz=pz-ai.position.z;
+    const dist=Math.sqrt(dx*dx+dz*dz);
+    if(dist<2.5&&dist>0){
+      const push=2.5-dist;
+      px+=(dx/dist)*push*0.7; pz+=(dz/dist)*push*0.7;
+      ai.position.x-=(dx/dist)*push*0.3; ai.position.z-=(dz/dist)*push*0.3;
+      spd*=-0.35; velX*=-0.35; velZ*=-0.35;
+    }
+  });
 
   const LIM=590;
   if(px>LIM){px=LIM;spd*=0.3;}if(px<-LIM){px=-LIM;spd*=0.3;}

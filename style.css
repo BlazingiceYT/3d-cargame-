@@ -262,7 +262,7 @@ body {
 /* ── MINIMAP ── */
 #mm {
   position: fixed;
-  bottom: 230px;
+  bottom: 196px;
   right: 18px;
   width: 110px;
   height: 110px;

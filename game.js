@@ -399,7 +399,7 @@ function addTireMark(x,z,angle){
 }
 
 // ── PHYSICS ──
-let spd=0,px=0,pz=0,pa=0,steer=0,velX=0,velZ=0,carY=0,velY=0,onGround=true,isDrifting=false;
+let spd=0,px=0,pz=0,pa=0,steer=0,velX=0,velZ=0,carY=terrainHeight(0,0),velY=0,onGround=true,isDrifting=false;
 const GRAVITY=-18, MAXS=41.7, NITRO_MAXS=55.6, ACC=10, BRK=28, FRIC=6;
 const SS=0.55, MS=0.16, TF=0.008, GRIP=9, DRIFT_GRIP=2;
 const GEAR_SPEEDS=[0,5,12,20,29,36,41.7];
@@ -530,13 +530,14 @@ function update(dt){
 
   // Vertical physics
   const gh=terrainHeight(px,pz);
+  const CAR_GROUND_OFFSET = 0.0; // car model bottom already at y=0
   if(onGround){
-    carY+=(gh-carY)*12*dt;
+    carY+=(gh+CAR_GROUND_OFFSET - carY)*12*dt;
     const bs=terrainHeight(px+Math.sin(pa)*2,pz+Math.cos(pa)*2)-gh;
     if(bs<-0.3&&Math.abs(spd)>15){velY=Math.abs(bs)*Math.abs(spd)*0.15;onGround=false;}
   } else {
     velY+=GRAVITY*dt; carY+=velY*dt;
-    if(carY<=gh){carY=gh;velY=0;onGround=true;}
+    if(carY<=gh+CAR_GROUND_OFFSET){carY=gh+CAR_GROUND_OFFSET;velY=0;onGround=true;}
   }
 
   const sf2=terrainHeight(px+Math.sin(pa)*2,pz+Math.cos(pa)*2)-terrainHeight(px-Math.sin(pa)*2,pz-Math.cos(pa)*2);
@@ -547,7 +548,9 @@ function update(dt){
 
   const cd=isDrifting?16:onGround?12:14, ch=isDrifting?6:onGround?5:8;
   const cosA=Math.cos(pa),sinA=Math.sin(pa);
-  cam.position.lerp(new THREE.Vector3(px-sinA*cd,carY+ch,pz-cosA*cd),5*dt);
+  const targetCamPos = new THREE.Vector3(px-sinA*cd, carY+ch, pz-cosA*cd);
+  cam.position.lerp(targetCamPos, 5*dt);
+  if(cam.position.y < carY + 1.5) cam.position.y = carY + 1.5; // never below car
   cam.lookAt(px+sinA*8,carY+0.8,pz+cosA*8);
 
   // AI update

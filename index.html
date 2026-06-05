@@ -34,23 +34,29 @@
   </div>
 </div>
 
+<!-- LOADER (hidden until map selected) -->
 <div id="loader" style="display:none">
   <h1>BLAZINGICE</h1>
   <p>City Racer</p>
   <div class="loader-bar"><div class="loader-fill"></div></div>
 </div>
 
+<!-- GAME -->
 <canvas id="c"></canvas>
 
-<!-- HUD overlays MUST be after canvas and use position:fixed -->
-<div id="spd"><span id="sv">0</span>KM/H</div>
-
+<!-- HUD -->
 <div id="hud">
   <div id="ai-info">AI: 18 | 5 RACERS</div>
 </div>
 
+<!-- Hidden speed values read by game.js canvas speedometer -->
+<span id="sv" style="display:none">0</span>
+<span id="gear-disp" style="display:none">GEAR 1</span>
+
+<!-- Minimap -->
 <canvas id="mm" width="110" height="110"></canvas>
 
+<!-- Touch Controls -->
 <div id="controls">
   <div class="btn-group">
     <div class="btn" id="bl">◀</div>
@@ -62,29 +68,34 @@
   </div>
 </div>
 
+<!-- Three.js loaded upfront so it's ready when game.js runs -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 
 <script>
 let selectedMap = 'city';
+
 function selectMap(map) {
   selectedMap = map;
   document.querySelectorAll('.mapCard').forEach(c => c.classList.remove('active'));
-  document.querySelector(`[data-map="${map}"]`).classList.add('active');
+  document.querySelector('[data-map="' + map + '"]').classList.add('active');
 }
+
 function startGame() {
   const ms = document.getElementById('mapSelect');
+  ms.style.transition = 'opacity 0.4s';
   ms.style.opacity = '0';
-  ms.style.transition = 'opacity 0.5s';
   setTimeout(() => {
     ms.remove();
+    // Show loader
     const loader = document.getElementById('loader');
     loader.style.display = 'flex';
-    // Load game after short delay
+    // Load game script
     const s = document.createElement('script');
     s.src = 'game.js';
+    s.onerror = () => console.error('Failed to load game.js');
     document.body.appendChild(s);
-  }, 500);
+  }, 450);
 }
 </script>
 

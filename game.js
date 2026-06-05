@@ -49,24 +49,43 @@ const matGrass = new THREE.MeshStandardMaterial({ color: 0x3d6e35, roughness: 0.
 const matDirt  = new THREE.MeshStandardMaterial({ color: 0x7a5c30, roughness: 0.98 });
 const matPave  = new THREE.MeshStandardMaterial({ color: 0x888890, roughness: 0.85 });
 
-// ── BUMPY GRASS TERRAIN ──
-const terrainGeo = new THREE.PlaneGeometry(1400, 1400, 80, 80);
-// Displace vertices to create bumps
-const pos = terrainGeo.attributes.position;
-for(let i=0; i<pos.count; i++){
-  const x=pos.getX(i), z=pos.getY(i); // Y is Z before rotation
-  // Flat in city area, bumpy outside
-  const distFromCenter=Math.sqrt(x*x+z*z);
-  const bumpStrength=Math.min(1, Math.max(0,(distFromCenter-130)/100));
-  const bump=(Math.sin(x*0.15)*Math.cos(z*0.18)+Math.sin(x*0.3+z*0.2)*0.5)*1.8;
-  pos.setZ(i, bump*bumpStrength);
+// ── BUMPY GRASS TERRAIN with vertex colors ──
+const TERRAIN_SEGS = 100;
+const terrainGeo = new THREE.PlaneGeometry(1400, 1400, TERRAIN_SEGS, TERRAIN_SEGS);
+const tPos = terrainGeo.attributes.position;
+
+// Height function — deterministic so we can sample it at runtime
+function terrainHeight(wx, wz) {
+  const distFromCenter = Math.sqrt(wx*wx + wz*wz);
+  const bumpStrength = Math.min(1, Math.max(0, (distFromCenter - 130) / 100));
+  return (Math.sin(wx*0.15)*Math.cos(wz*0.18) + Math.sin(wx*0.3+wz*0.2)*0.5) * 2.5 * bumpStrength;
+}
+
+// Apply heights to terrain mesh
+for (let i = 0; i < tPos.count; i++) {
+  const wx = tPos.getX(i);
+  const wz = tPos.getY(i); // before rotation Y=Z
+  tPos.setZ(i, terrainHeight(wx, wz));
 }
 terrainGeo.computeVertexNormals();
-const ground=new THREE.Mesh(terrainGeo,
-  new THREE.MeshStandardMaterial({color:0x3d6e35,roughness:0.95})
+
+// Vertex colors — darker in valleys, lighter on peaks
+const colors = new Float32Array(tPos.count * 3);
+for (let i = 0; i < tPos.count; i++) {
+  const h = tPos.getZ(i);
+  const t = (h + 2.5) / 5.0; // 0..1
+  // Mix dark green valley → bright green peak
+  colors[i*3]   = 0.15 + t * 0.12;
+  colors[i*3+1] = 0.30 + t * 0.25;
+  colors[i*3+2] = 0.10 + t * 0.08;
+}
+terrainGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+const ground = new THREE.Mesh(terrainGeo,
+  new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 })
 );
-ground.rotation.x=-Math.PI/2;
-ground.receiveShadow=true;
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
 scene.add(ground);
 
 for (let i = 0; i < 35; i++) {
@@ -605,14 +624,23 @@ bindBtn('gg','gas');bindBtn('bg','brake');bindBtn('bl','left');bindBtn('br','rig
 
 // ── PHYSICS ──
 let spd=0, px=0, pz=0, pa=0, steer=0;
-let velX=0, velZ=0;         // actual velocity vector for drift
-let driftAngle=0;           // difference between heading and velocity
+let velX=0, velZ=0;
 let isDrifting=false;
 
-const MAXS=30, ACC=14, BRK=24, FRIC=6;
-const SS=0.6,  MS=0.18,  TF=0.010; // softer steering
-const GRIP=8;        // how quickly car snaps to heading (lower = more drift)
-const DRIFT_GRIP=2;  // grip when drifting
+// Vertical physics for airtime
+let carY=0, velY=0;
+let onGround=true;
+const GRAVITY = -18;
+
+const MAXS = 139;    // ~500 km/h in world units/s
+const ACC  = 55;     // strong acceleration
+const BRK  = 80;
+const FRIC = 10;
+const SS=0.6, MS=0.18, TF=0.008;
+const GRIP=9, DRIFT_GRIP=2;
+
+// Gear ratios — 6 gears
+const GEAR_SPEEDS=[0,18,40,70,95,115,139]; // world units/s per gear threshold
 
 // CHANGE 3: Smooth slow minimap
 const mmEl=document.getElementById('mm');
@@ -715,33 +743,104 @@ function resolveCollisions(){
   });
 }
 
+// ── SPEEDOMETER CANVAS ──
+const spdCanvas = document.createElement('canvas');
+spdCanvas.width = 200; spdCanvas.height = 200;
+spdCanvas.style.cssText = 'position:fixed;bottom:220px;right:16px;width:160px;height:160px;z-index:10;pointer-events:none;';
+document.body.appendChild(spdCanvas);
+const sctx = spdCanvas.getContext('2d');
+
+function drawSpeedometer(kmh, gear, rpmPct) {
+  const cx=100, cy=115, r=80;
+  sctx.clearRect(0,0,200,200);
+
+  // Outer ring
+  sctx.beginPath();
+  sctx.arc(cx,cy,r,Math.PI*0.75,Math.PI*2.25);
+  sctx.strokeStyle='#ffffff11'; sctx.lineWidth=14; sctx.stroke();
+
+  // Speed arc — green to red
+  const maxKmh=500;
+  const spdAngle=Math.PI*0.75+(kmh/maxKmh)*Math.PI*1.5;
+  const grad=sctx.createLinearGradient(cx-r,cy,cx+r,cy);
+  grad.addColorStop(0,'#00ffcc');
+  grad.addColorStop(0.5,'#ffcc00');
+  grad.addColorStop(1,'#ff2244');
+  sctx.beginPath();
+  sctx.arc(cx,cy,r,Math.PI*0.75,spdAngle);
+  sctx.strokeStyle=grad; sctx.lineWidth=14; sctx.stroke();
+
+  // RPM inner ring
+  sctx.beginPath();
+  sctx.arc(cx,cy,r-20,Math.PI*0.75,Math.PI*0.75+rpmPct*Math.PI*1.5);
+  sctx.strokeStyle=rpmPct>0.85?'#ff2244':'#ff8800';
+  sctx.lineWidth=5; sctx.stroke();
+
+  // Tick marks
+  for(let i=0;i<=10;i++){
+    const a=Math.PI*0.75+(i/10)*Math.PI*1.5;
+    const inner=i%5===0?r-28:r-22;
+    sctx.beginPath();
+    sctx.moveTo(cx+Math.cos(a)*inner,cy+Math.sin(a)*inner);
+    sctx.lineTo(cx+Math.cos(a)*(r-8),cy+Math.sin(a)*(r-8));
+    sctx.strokeStyle=i%5===0?'#ffffff88':'#ffffff33';
+    sctx.lineWidth=i%5===0?2:1; sctx.stroke();
+  }
+
+  // Speed number
+  sctx.fillStyle='#ffffff';
+  sctx.font='bold 28px monospace';
+  sctx.textAlign='center';
+  sctx.fillText(kmh,cx,cy+8);
+
+  // KM/H label
+  sctx.fillStyle='#ffffff55';
+  sctx.font='9px monospace';
+  sctx.fillText('KM/H',cx,cy+24);
+
+  // Gear
+  sctx.fillStyle='#00ffcc';
+  sctx.font='bold 14px monospace';
+  sctx.fillText('G'+gear,cx,cy+44);
+
+  // Airborne indicator
+  if(!onGround){
+    sctx.fillStyle='#ff8800';
+    sctx.font='bold 10px monospace';
+    sctx.fillText('AIR',cx,cy-30);
+  }
+  if(isDrifting){
+    sctx.fillStyle='#ff2244';
+    sctx.font='bold 10px monospace';
+    sctx.fillText('DRIFT',cx,cy-44);
+  }
+}
+
 // ── GAME LOOP ──
 const clock=new THREE.Clock();
 
 function update(dt){
   // Acceleration
   if(K.gas)        spd=Math.min(spd+ACC*dt,MAXS);
-  else if(K.brake) spd=Math.max(spd-BRK*dt,-MAXS*0.35);
+  else if(K.brake) spd=Math.max(spd-BRK*dt,-MAXS*0.3);
   else{if(spd>0)spd=Math.max(0,spd-FRIC*dt);if(spd<0)spd=Math.min(0,spd+FRIC*dt);}
 
-  // Steering — speed-sensitive (less sharp at high speed)
-  const speedFactor=Math.max(0.3,1-Math.abs(spd)/MAXS*0.6);
+  // Speed-sensitive steering
+  const speedFactor=Math.max(0.25,1-Math.abs(spd)/MAXS*0.75);
   if(K.left)       steer=Math.min(steer+SS*speedFactor*dt, MS*speedFactor);
   else if(K.right) steer=Math.max(steer-SS*speedFactor*dt,-MS*speedFactor);
   else             steer*=(1-6*dt);
 
-  // Drift — brake while turning at speed
-  const wantDrift=K.brake&&Math.abs(spd)>8&&Math.abs(steer)>0.05;
+  // Drift
+  const wantDrift=K.brake&&Math.abs(spd)>20&&Math.abs(steer)>0.04;
   isDrifting=wantDrift;
   const grip=isDrifting?DRIFT_GRIP:GRIP;
 
   if(Math.abs(spd)>0.3) pa+=steer*spd*TF;
 
-  // Target velocity = car heading direction
+  // Horizontal velocity with grip
   const targetVX=Math.sin(pa)*spd;
   const targetVZ=Math.cos(pa)*spd;
-
-  // Actual velocity lerps toward target (grip controls how fast)
   velX+=(targetVX-velX)*grip*dt;
   velZ+=(targetVZ-velZ)*grip*dt;
 
@@ -750,26 +849,54 @@ function update(dt){
 
   resolveCollisions();
 
-  // Bumpy terrain — slight Y oscillation off road
-  const onRoad=GL.some(g=>Math.abs(px-g)<6||Math.abs(pz-g)<6);
-  const bumpY=onRoad?0:Math.sin(px*0.3)*Math.cos(pz*0.3)*0.4;
-
   const LIM=590;
   if(px>LIM){px=LIM;spd*=0.3;}if(px<-LIM){px=-LIM;spd*=0.3;}
   if(pz>LIM){pz=LIM;spd*=0.3;}if(pz<-LIM){pz=-LIM;spd*=0.3;}
 
-  player.position.set(px,bumpY,pz);
-  player.rotation.y=pa;
-  // Tilt car on bumps
-  player.rotation.x=onRoad?0:Math.sin(px*0.3)*0.04;
-  player.rotation.z=onRoad?0:Math.cos(pz*0.3)*0.04;
+  // ── VERTICAL PHYSICS (gravity + airtime) ──
+  const groundH = terrainHeight(px, pz);
 
-  // Camera — wider when drifting
-  const camDist=isDrifting?16:12;
-  const camH=isDrifting?6:5;
-  const cosA=Math.cos(pa),sinA=Math.sin(pa);
-  cam.position.lerp(new THREE.Vector3(px-sinA*camDist,camH+bumpY,pz-cosA*camDist),5*dt);
-  cam.lookAt(px+sinA*8,0.8+bumpY,pz+cosA*8);
+  if(onGround){
+    // Follow terrain smoothly
+    const targetY = groundH;
+    carY += (targetY - carY) * 12 * dt;
+
+    // Launch into air if going fast over a bump
+    const bumpSlope = terrainHeight(px+Math.sin(pa)*2, pz+Math.cos(pa)*2) - groundH;
+    if(bumpSlope < -0.4 && Math.abs(spd) > 40){
+      velY = Math.abs(bumpSlope) * Math.abs(spd) * 0.12;
+      onGround = false;
+    }
+  } else {
+    // Airborne — apply gravity
+    velY += GRAVITY * dt;
+    carY += velY * dt;
+
+    if(carY <= groundH){
+      carY = groundH;
+      velY = 0;
+      onGround = true;
+      // Hard landing — lose some speed
+      if(Math.abs(velY) > 5) spd *= 0.85;
+    }
+  }
+
+  // Car pitch based on terrain slope
+  const slopeF = terrainHeight(px+Math.sin(pa)*2, pz+Math.cos(pa)*2) - terrainHeight(px-Math.sin(pa)*2, pz-Math.cos(pa)*2);
+  const slopeS = terrainHeight(px+Math.cos(pa)*1.5, pz-Math.sin(pa)*1.5) - terrainHeight(px-Math.cos(pa)*1.5, pz+Math.sin(pa)*1.5);
+
+  player.position.set(px, carY, pz);
+  player.rotation.order = 'YXZ';
+  player.rotation.y = pa;
+  player.rotation.x = onGround ? -slopeF * 0.12 : 0;
+  player.rotation.z = onGround ?  slopeS * 0.12 : 0;
+
+  // Camera — pull back when airborne
+  const camDist = isDrifting?16:onGround?12:14;
+  const camH    = isDrifting?6:onGround?5:8;
+  const cosA=Math.cos(pa), sinA=Math.sin(pa);
+  cam.position.lerp(new THREE.Vector3(px-sinA*camDist, carY+camH, pz-cosA*camDist), 5*dt);
+  cam.lookAt(px+sinA*8, carY+0.8, pz+cosA*8);
 
   aiCars.forEach(c=>{
     const wp=WPS[c.userData.wpIdx%WPS.length];
@@ -823,7 +950,21 @@ function update(dt){
   lightUpdateTimer += dt;
   if (lightUpdateTimer > 0.4) { lightUpdateTimer = 0; updateNearestLights(); }
 
-  document.getElementById('sv').textContent=Math.abs(Math.round(spd*3.6));
+  // Gear calculation
+  const kmh = Math.abs(Math.round(spd * 3.6));
+  let gear = 1;
+  for(let g=1;g<GEAR_SPEEDS.length;g++){
+    if(Math.abs(spd)>=GEAR_SPEEDS[g-1]) gear=g;
+  }
+  // RPM — rises within each gear band then drops at shift
+  const gearLow  = GEAR_SPEEDS[gear-1]*3.6;
+  const gearHigh = GEAR_SPEEDS[gear]*3.6;
+  const rpmPct   = Math.max(0,Math.min(1,(kmh-gearLow)/(gearHigh-gearLow)));
+
+  document.getElementById('sv').textContent  = kmh;
+  document.getElementById('gear-disp').textContent = 'GEAR ' + gear;
+  // Update needle angle on speedometer canvas
+  drawSpeedometer(kmh, gear, rpmPct);
   sun.position.set(px+100,200,pz+100);
   sun.target.position.set(px,0,pz);
 

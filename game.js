@@ -546,12 +546,9 @@ function update(dt){
   player.rotation.order='YXZ'; player.rotation.y=pa;
   player.rotation.x=onGround?-sf2*0.12:0; player.rotation.z=onGround?ss2*0.12:0;
 
-  const cd=isDrifting?16:onGround?12:14, ch=isDrifting?6:onGround?5:8;
   const cosA=Math.cos(pa),sinA=Math.sin(pa);
-  const targetCamPos = new THREE.Vector3(px-sinA*cd, carY+ch, pz-cosA*cd);
-  cam.position.lerp(targetCamPos, 5*dt);
-  if(cam.position.y < carY + 1.5) cam.position.y = carY + 1.5; // never below car
-  cam.lookAt(px+sinA*8,carY+0.8,pz+cosA*8);
+  cam.position.lerp(new THREE.Vector3(px-sinA*12, carY+5, pz-cosA*12), 5*dt);
+  cam.lookAt(px+sinA*8, carY+0.8, pz+cosA*8);
 
   // AI update
   aiCars.forEach(c=>{

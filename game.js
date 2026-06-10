@@ -261,7 +261,6 @@ pcabin.position.set(0,1.35,-0.1); player.add(pcabin);
   wh.rotation.z=Math.PI/2; wh.position.set(wx,wy,wz); player.add(wh);
 });
 player.position.set(0,0,0); scene.add(player);
-
 // ── NITRO EFFECT — particle burst behind car ──
 const NITRO_PARTICLE_COUNT = 40;
 const nitroGeo = new THREE.BufferGeometry();
@@ -405,9 +404,6 @@ const GRAVITY=-18, MAXS=41.7, NITRO_MAXS=55.6, ACC=10, BRK=28, FRIC=6;
 const SS=0.55, MS=0.16, TF=0.008, GRIP=9, DRIFT_GRIP=2;
 const GEAR_SPEEDS=[0,5,12,20,29,36,41.7];
 
-// Flag to track whether the camera needs to snap to its initial space target on frame 1
-let firstCameraFrame = true;
-
 // ── MINIMAP ──
 const mmEl=document.getElementById('mm');
 const mc=mmEl.getContext('2d');
@@ -436,9 +432,11 @@ function drawMinimap(dt){
 // ── SPEEDOMETER ──
 const spdCanvas=document.createElement('canvas');
 spdCanvas.width=200; spdCanvas.height=200;
+// Place ABOVE minimap — minimap is at bottom:196px, height 110px, so speedometer goes below that
 spdCanvas.style.cssText='position:fixed;bottom:16px;right:16px;width:160px;height:160px;z-index:10;pointer-events:none;';
 document.body.appendChild(spdCanvas);
 const sctx=spdCanvas.getContext('2d');
+// Also move minimap above speedometer via JS
 if(mmEl) mmEl.style.bottom='186px';
 
 function drawSpeedometer(kmh,gear,rpmPct){
@@ -496,7 +494,7 @@ function update(dt){
 
   if(isDrifting&&onGround&&Math.abs(spd)>5)addTireMark(px,pz,pa);
 
-  // Building collision
+  // Building collision — launch up if hitting side, land on roof if on top
   buildingBounds.forEach(b=>{
     const tx=Math.max(b.minX,Math.min(px,b.maxX));
     const tz=Math.max(b.minZ,Math.min(pz,b.maxZ));
@@ -532,7 +530,7 @@ function update(dt){
 
   // Vertical physics
   const gh=terrainHeight(px,pz);
-  const CAR_GROUND_OFFSET = 0.0;
+  const CAR_GROUND_OFFSET = 0.0; // car model bottom already at y=0
   if(onGround){
     carY+=(gh+CAR_GROUND_OFFSET - carY)*12*dt;
     const bs=terrainHeight(px+Math.sin(pa)*2,pz+Math.cos(pa)*2)-gh;
@@ -542,22 +540,16 @@ function update(dt){
     if(carY<=gh+CAR_GROUND_OFFSET){carY=gh+CAR_GROUND_OFFSET;velY=0;onGround=true;}
   }
 
-  const sf2=terrainHeight(px+Math.sin(pa)*2,pz+Math.cos(pa)*2)-gh;
+  const sf2=terrainHeight(px+Math.sin(pa)*2,pz+Math.cos(pa)*2)-terrainHeight(px-Math.sin(pa)*2,pz-Math.cos(pa)*2);
   const ss2=terrainHeight(px+Math.cos(pa)*1.5,pz-Math.sin(pa)*1.5)-terrainHeight(px-Math.cos(pa)*1.5,pz+Math.sin(pa)*1.5);
-  player.position.set(px,carY,pz);
+  player.position.set(px, Math.max(0, carY), pz);
   player.rotation.order='YXZ'; player.rotation.y=pa;
   player.rotation.x=onGround?-sf2*0.12:0; player.rotation.z=onGround?ss2*0.12:0;
 
   const cosA=Math.cos(pa),sinA=Math.sin(pa);
-  
-  // Snap camera instantly to track positions on frame 1 to avoid passing through/below terrain elements
-  if(firstCameraFrame){
-    cam.position.set(px-sinA*12, carY+5, pz-cosA*12);
-    firstCameraFrame = false;
-  } else {
-    cam.position.lerp(new THREE.Vector3(px-sinA*12, carY+5, pz-cosA*12), 5*dt);
-  }
-  cam.lookAt(px+sinA*8, carY+0.8, pz+cosA*8);
+  const camTargetY = Math.max(2, carY + 5); // NEVER below y=2
+  cam.position.lerp(new THREE.Vector3(px-sinA*12, camTargetY, pz-cosA*12), 5*dt);
+  cam.lookAt(px+sinA*8, Math.max(0, carY)+0.8, pz+cosA*8);
 
   // AI update
   aiCars.forEach(c=>{
@@ -622,7 +614,7 @@ window.addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.upda
 
 animate();
 
-// Force camera setup parameters safely
+// Force camera to correct starting position immediately
 cam.position.set(0, 5, -12);
 cam.lookAt(0, 1, 10);
 setTimeout(()=>{

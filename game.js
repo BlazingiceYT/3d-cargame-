@@ -17,9 +17,9 @@ scene.fog = new THREE.FogExp2(0x0a0a1a, 0.008);
 
 const cam = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 1000);
 cam.position.set(0, 5, -12);
-cam.lookAt(0, 0, 0);
+cam.lookAt(0, 1, 10);
 
-scene.add(new THREE.AmbientLight(0x223355, 1.2));
+scene.add(new THREE.AmbientLight(0x556688, 2.5));
 const sun = new THREE.DirectionalLight(0xfffbe8, 2.0);
 sun.position.set(100, 200, 100);
 sun.castShadow = true;
@@ -612,6 +612,10 @@ function animate(){
 window.addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
 
 animate();
+
+// Force camera to correct starting position immediately
+cam.position.set(0, 5, -12);
+cam.lookAt(0, 1, 10);
 setTimeout(()=>{
   cubeCamera.position.set(0,10,0);
   scene.background=new THREE.Color(0x0a0a1a);

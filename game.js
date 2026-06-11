@@ -15,41 +15,9 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0a1a);
 scene.fog = new THREE.FogExp2(0x0a0a1a, 0.008);
 
-// ── TERRAIN DEFINITION (Moved up to safely derive spawn states) ──
-const BUMPS = [
-  { x:220,  z:180,  r:40, h:3.5 },
-  { x:-180, z:250,  r:35, h:4.0 },
-  { x:300,  z:-200, r:45, h:3.0 },
-  { x:-280, z:-160, r:38, h:3.8 },
-  { x:180,  z:-320, r:42, h:2.8 },
-  { x:-350, z:280,  r:50, h:4.5 },
-  { x:400,  z:100,  r:36, h:3.2 },
-  { x:-100, z:400,  r:44, h:3.6 },
-];
-
-function terrainHeight(wx, wz) {
-  const d = Math.sqrt(wx*wx + wz*wz);
-  if(d < 135) return 0;
-
-  let h = 0;
-  for(const b of BUMPS){
-    const bd = Math.sqrt((wx-b.x)**2 + (wz-b.z)**2);
-    if(bd < b.r){
-      const t = bd / b.r;
-      h += b.h * (0.5 + 0.5*Math.cos(t * Math.PI));
-    }
-  }
-  return h;
-}
-
-// Ensure physics variables accurately capture terrain properties before loop triggers
-const spawnH = terrainHeight(0, 0);
-let spd=0, px=0, pz=0, pa=0, steer=0, velX=0, velZ=0, carY=spawnH, velY=0, onGround=true, isDrifting=false;
-
-// ── CAMERA STATE FOR INITIAL RENDERING ──
 const cam = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 1000);
-cam.position.set(0, spawnH + 5, -12);
-cam.lookAt(0, spawnH + 1, 10);
+cam.position.set(0, 8, -12);
+cam.lookAt(0, 0, 10);
 
 scene.add(new THREE.AmbientLight(0x556688, 2.5));
 const sun = new THREE.DirectionalLight(0xfffbe8, 2.0);
@@ -68,6 +36,36 @@ const matYLine = new THREE.MeshBasicMaterial({ color: 0xffcc00 });
 const matPave = new THREE.MeshStandardMaterial({ color: 0x888890, roughness: 0.85 });
 const matDirt = new THREE.MeshStandardMaterial({ color: 0x7a5c30, roughness: 0.98 });
 
+// ── TERRAIN — flat with a few big distinct bumps ──
+// Define bump locations manually so they're dramatic and visible
+const BUMPS = [
+  { x:220,  z:180,  r:40, h:3.5 },
+  { x:-180, z:250,  r:35, h:4.0 },
+  { x:300,  z:-200, r:45, h:3.0 },
+  { x:-280, z:-160, r:38, h:3.8 },
+  { x:180,  z:-320, r:42, h:2.8 },
+  { x:-350, z:280,  r:50, h:4.5 },
+  { x:400,  z:100,  r:36, h:3.2 },
+  { x:-100, z:400,  r:44, h:3.6 },
+];
+
+function terrainHeight(wx, wz) {
+  // Keep city area flat
+  const d = Math.sqrt(wx*wx + wz*wz);
+  if(d < 135) return 0;
+
+  let h = 0;
+  for(const b of BUMPS){
+    const bd = Math.sqrt((wx-b.x)**2 + (wz-b.z)**2);
+    if(bd < b.r){
+      // Smooth cosine hill shape
+      const t = bd / b.r;
+      h += b.h * (0.5 + 0.5*Math.cos(t * Math.PI));
+    }
+  }
+  return h;
+}
+
 const terrainGeo = new THREE.PlaneGeometry(1400, 1400, 100, 100);
 const tPos = terrainGeo.attributes.position;
 for (let i = 0; i < tPos.count; i++) {
@@ -77,6 +75,7 @@ terrainGeo.computeVertexNormals();
 const tColors = new Float32Array(tPos.count * 3);
 for (let i = 0; i < tPos.count; i++) {
   const h = tPos.getZ(i);
+  // Flat = dark green, bump sides = mid green, peaks = bright green/yellow-green
   const t = Math.max(0, Math.min(1, h / 4.5));
   tColors[i*3]   = 0.10 + t*0.15;  // R
   tColors[i*3+1] = 0.25 + t*0.30;  // G
@@ -105,7 +104,7 @@ for(let i=130;i<580;i+=13){
   const yd=new THREE.Mesh(new THREE.PlaneGeometry(0.45,5.5),matYLine); yd.rotation.x=-Math.PI/2;
   yd.position.set(0,0.022,i); scene.add(yd); const yd2=yd.clone(); yd2.position.z=-i; scene.add(yd2);
   const yd3=new THREE.Mesh(new THREE.PlaneGeometry(5.5,0.45),matYLine); yd3.rotation.x=-Math.PI/2;
-  yd3.position.set(i,0.022,0); scene.add(yd4=yd3.clone()); yd4.position.x=-i; scene.add(yd4);
+  yd3.position.set(i,0.022,0); scene.add(yd3); const yd4=yd3.clone(); yd4.position.x=-i; scene.add(yd4);
 }
 for(let i=0;i<72;i++){
   const a1=(i/72)*Math.PI*2, a2=((i+1)/72)*Math.PI*2;
@@ -261,11 +260,8 @@ pcabin.position.set(0,1.35,-0.1); player.add(pcabin);
   const wh=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,0.3,12),new THREE.MeshStandardMaterial({color:0x111111,roughness:0.8}));
   wh.rotation.z=Math.PI/2; wh.position.set(wx,wy,wz); player.add(wh);
 });
-// Set initial group position explicitly onto derived spawning height
-player.position.set(0, spawnH, 0); 
-scene.add(player);
-
-// ── NITRO EFFECT ──
+player.position.set(0,0,0); scene.add(player);
+// ── NITRO EFFECT — particle burst behind car ──
 const NITRO_PARTICLE_COUNT = 40;
 const nitroGeo = new THREE.BufferGeometry();
 const nitroPositions = new Float32Array(NITRO_PARTICLE_COUNT * 3);
@@ -284,12 +280,14 @@ const nitroMat = new THREE.PointsMaterial({
 const nitroParticles = new THREE.Points(nitroGeo, nitroMat);
 scene.add(nitroParticles);
 
+// Particle state
 const nitroState = Array.from({length: NITRO_PARTICLE_COUNT}, () => ({
   active: false, x:0, y:0, z:0, vx:0, vy:0, vz:0, life:0, maxLife:0
 }));
 
 function updateNitroEffect(dt) {
   if(K.nitro && Math.abs(spd) > 5) {
+    // Spawn new particles from exhaust position (behind car)
     const cosA = Math.cos(pa), sinA = Math.sin(pa);
     const exX = px - sinA*2.5, exZ = pz - cosA*2.5;
     for(let i=0; i<3; i++) {
@@ -299,6 +297,7 @@ function updateNitroEffect(dt) {
       p.x = exX + (Math.random()-0.5)*0.8;
       p.y = carY + 0.3 + Math.random()*0.3;
       p.z = exZ + (Math.random()-0.5)*0.8;
+      // Shoot backward + slight spread
       p.vx = -sinA*(3+Math.random()*4) + (Math.random()-0.5)*2;
       p.vy = Math.random()*1.5 + 0.5;
       p.vz = -cosA*(3+Math.random()*4) + (Math.random()-0.5)*2;
@@ -307,6 +306,7 @@ function updateNitroEffect(dt) {
     }
   }
 
+  // Update active particles
   nitroState.forEach((p, i) => {
     if(!p.active){
       nitroPositions[i*3] = 0; nitroPositions[i*3+1] = -999; nitroPositions[i*3+2] = 0;
@@ -315,8 +315,9 @@ function updateNitroEffect(dt) {
     p.life -= dt;
     if(p.life <= 0){ p.active = false; return; }
     p.x += p.vx*dt; p.y += p.vy*dt; p.z += p.vz*dt;
-    p.vy -= 4*dt;
+    p.vy -= 4*dt; // gravity on particles
     const t = p.life/p.maxLife;
+    // Color shift blue→white→gone
     nitroMat.color.setHSL(0.58 + (1-t)*0.1, 1, 0.5+t*0.5);
     nitroPositions[i*3]   = p.x;
     nitroPositions[i*3+1] = p.y;
@@ -397,7 +398,8 @@ function addTireMark(x,z,angle){
   tireMarks.forEach((mk,i)=>{mk.material.opacity=Math.min(0.6,i/tireMarks.length*0.6);});
 }
 
-// ── PHYSICS CONSTANTS ──
+// ── PHYSICS ──
+let spd=0,px=0,pz=10,pa=0,steer=0,velX=0,velZ=0,carY=0,velY=0,onGround=true,isDrifting=false;
 const GRAVITY=-18, MAXS=41.7, NITRO_MAXS=55.6, ACC=10, BRK=28, FRIC=6;
 const SS=0.55, MS=0.16, TF=0.008, GRIP=9, DRIFT_GRIP=2;
 const GEAR_SPEEDS=[0,5,12,20,29,36,41.7];
@@ -430,9 +432,11 @@ function drawMinimap(dt){
 // ── SPEEDOMETER ──
 const spdCanvas=document.createElement('canvas');
 spdCanvas.width=200; spdCanvas.height=200;
+// Place ABOVE minimap — minimap is at bottom:196px, height 110px, so speedometer goes below that
 spdCanvas.style.cssText='position:fixed;bottom:16px;right:16px;width:160px;height:160px;z-index:10;pointer-events:none;';
 document.body.appendChild(spdCanvas);
 const sctx=spdCanvas.getContext('2d');
+// Also move minimap above speedometer via JS
 if(mmEl) mmEl.style.bottom='186px';
 
 function drawSpeedometer(kmh,gear,rpmPct){
@@ -464,7 +468,7 @@ fpsEl.style.cssText='position:fixed;top:18px;right:18px;color:#00ffcc;font-famil
 document.body.appendChild(fpsEl);
 let fpsF=0,fpsT=0;
 
-// ── MAIN LOOP ENGINE ──
+// ── GAME LOOP ──
 const clock=new THREE.Clock();
 function update(dt){
   const curMax=K.nitro?NITRO_MAXS:MAXS;
@@ -490,6 +494,7 @@ function update(dt){
 
   if(isDrifting&&onGround&&Math.abs(spd)>5)addTireMark(px,pz,pa);
 
+  // Building collision — launch up if hitting side, land on roof if on top
   buildingBounds.forEach(b=>{
     const tx=Math.max(b.minX,Math.min(px,b.maxX));
     const tz=Math.max(b.minZ,Math.min(pz,b.maxZ));
@@ -502,11 +507,13 @@ function update(dt){
     }
   });
 
+  // Lampposts
   lampBounds.forEach(l=>{
     const dx=px-l.x,dz=pz-l.z,dist=Math.sqrt(dx*dx+dz*dz);
     if(dist<1&&dist>0){px+=(dx/dist)*(1-dist);pz+=(dz/dist)*(1-dist);spd*=-0.3;velX*=-0.3;velZ*=-0.3;}
   });
 
+  // AI collisions
   aiCars.forEach(ai=>{
     const dx=px-ai.position.x,dz=pz-ai.position.z,dist=Math.sqrt(dx*dx+dz*dz);
     if(dist<2.5&&dist>0){
@@ -521,8 +528,9 @@ function update(dt){
   if(px>LIM){px=LIM;spd*=0.3;}if(px<-LIM){px=-LIM;spd*=0.3;}
   if(pz>LIM){pz=LIM;spd*=0.3;}if(pz<-LIM){pz=-LIM;spd*=0.3;}
 
-  const gh = terrainHeight(px,pz);
-  const CAR_GROUND_OFFSET = 0.0;
+  // Vertical physics
+  const gh=terrainHeight(px,pz);
+  const CAR_GROUND_OFFSET = 0.0; // car model bottom already at y=0
   if(onGround){
     carY+=(gh+CAR_GROUND_OFFSET - carY)*12*dt;
     const bs=terrainHeight(px+Math.sin(pa)*2,pz+Math.cos(pa)*2)-gh;
@@ -539,11 +547,13 @@ function update(dt){
   player.rotation.x=onGround?-sf2*0.12:0; player.rotation.z=onGround?ss2*0.12:0;
 
   const cosA=Math.cos(pa),sinA=Math.sin(pa);
+  // X and Z lerp smoothly, Y is SET directly — cannot go underground
   cam.position.x += (px - sinA*12 - cam.position.x) * 5*dt;
   cam.position.z += (pz - cosA*12 - cam.position.z) * 5*dt;
-  cam.position.y = Math.max(carY + 3, carY + 5);
+  cam.position.y = Math.max(carY + 3, carY + 5); // always 5 above car, min 3
   cam.lookAt(px+sinA*8, carY+0.8, pz+cosA*8);
 
+  // AI update
   aiCars.forEach(c=>{
     const wp=WPS[c.userData.wpIdx%WPS.length];
     const dx=wp[0]-c.position.x,dz=wp[1]-c.position.z;
@@ -565,6 +575,7 @@ function update(dt){
     c.position.z=Math.max(-590,Math.min(590,c.position.z));
   });
 
+  // Trees
   trees.forEach((t,i)=>{
     if(!t.userData.alive){
       if(t.userData.fall<Math.PI/2){
@@ -603,10 +614,12 @@ function animate(){
 
 window.addEventListener('resize',()=>{cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
 
-// Start the animation loop after components have unified properties
 animate();
 
-// Remove duplicate camera math and keep only setup instructions within timeout
+// Force camera to correct position at spawn — runs after animate() sets up the loop
+const spawnH = terrainHeight(0, 0);
+cam.position.set(0, spawnH + 8, -12);
+cam.lookAt(0, spawnH, 10);
 setTimeout(()=>{
   cubeCamera.position.set(0,10,0);
   scene.background=new THREE.Color(0x0a0a1a);

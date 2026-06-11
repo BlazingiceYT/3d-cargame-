@@ -550,7 +550,7 @@ function update(dt){
   // X and Z lerp smoothly, Y is SET directly — cannot go underground
   cam.position.x += (px - sinA*12 - cam.position.x) * 5*dt;
   cam.position.z += (pz - cosA*12 - cam.position.z) * 5*dt;
-  cam.position.y = Math.max(carY + 3, carY + 5); // always 5 above car, min 3
+  cam.position.y = Math.max(gh + 5, carY + 5); // 5 above car, but min 5 above ground
   cam.lookAt(px+sinA*8, carY+0.8, pz+cosA*8);
 
   // AI update

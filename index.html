@@ -182,26 +182,19 @@ function startGame(map) {
   document.getElementById('mapSelect').style.display = 'none';
   const loader = document.getElementById('loader');
   loader.style.display = 'flex';
-  setTimeout(() => {
-    loader.style.opacity = '0';
-    setTimeout(() => { loader.style.display = 'none'; }, 600);
-  }, 1400);
-  setTimeout(() => initGame(map), 200);
+  initGame(map);
+}
+
+function hideLoader() {
+  const loader = document.getElementById('loader');
+  loader.style.opacity = '0';
+  setTimeout(() => { loader.style.display = 'none'; }, 600);
 }
 
 // ═══════════════════════════════════════════
 // RENDERER INIT
 // ═══════════════════════════════════════════
 function initGame(mapType) {
-  canvas.style.display = 'block';
-  document.getElementById('minimap').style.display = 'block';
-  document.getElementById('drift-alert').style.display = 'block';
-  document.getElementById('air-alert').style.display = 'block';
-  document.getElementById('speedo-wrap').style.display = 'block';
-  document.getElementById('hud-fps').style.display = 'block';
-  document.getElementById('hud-info').style.display = 'block';
-  document.getElementById('controls').style.display = 'flex';
-
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -231,17 +224,34 @@ function initGame(mapType) {
   scene.add(sun);
   window._sun = sun;
 
-  buildWorld();
+  const carReady = buildWorld(); // Promise — resolves once car.glb has loaded OR safely fallen back
   setupParticles();
   setupTyreMarks();
   setupInput();
-  gameRunning = true;
-  animate();
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // Only reveal the game + hide the loader once the car is actually ready to be seen.
+  // Safety net: if loading somehow stalls forever (no success, no error event), don't
+  // trap the player on the loading screen — proceed after 20s regardless.
+  const safetyTimeout = new Promise(resolve => setTimeout(resolve, 20000));
+  Promise.race([carReady, safetyTimeout]).then(() => {
+    canvas.style.display = 'block';
+    document.getElementById('minimap').style.display = 'block';
+    document.getElementById('drift-alert').style.display = 'block';
+    document.getElementById('air-alert').style.display = 'block';
+    document.getElementById('speedo-wrap').style.display = 'block';
+    document.getElementById('hud-fps').style.display = 'block';
+    document.getElementById('hud-info').style.display = 'block';
+    document.getElementById('controls').style.display = 'flex';
+
+    hideLoader();
+    gameRunning = true;
+    animate();
   });
 }
 
@@ -268,8 +278,9 @@ function buildWorld() {
   buildCityBlocks();
   buildTrees();
   buildStreetLights();
-  buildPlayerCar();
+  const carReady = buildPlayerCar(); // Promise
   buildAICars();
+  return carReady;
 }
 
 // ── TERRAIN WITH BUMPS ──
@@ -712,72 +723,79 @@ function buildPlayerCar() {
   carGroup.position.set(0, 0, 15);
   scene.add(carGroup);
 
-  if (typeof THREE.GLTFLoader === 'undefined') {
-    console.error('[car.glb] THREE.GLTFLoader is undefined — the loader script tag failed to load (check network/CDN access). Using box car fallback.');
-    if (carStatusEl) {
-      carStatusEl.textContent = 'CAR: ✗ GLTFLoader script did not load (CDN blocked?)';
-      carStatusEl.style.color = '#ff4444';
-    }
-    buildFallbackBoxCar(carGroup);
-    return;
-  }
-
-  const loader = new THREE.GLTFLoader();
-  loader.load(
-    'car.glb',
-    (gltf) => {
-      const model = gltf.scene;
-      model.traverse(child => {
-        if (child.isMesh) {
-          child.castShadow = true;
-          child.receiveShadow = false;
-        }
-      });
-
-      // Auto-scale: normalize the car's longest horizontal dimension to CAR_TARGET_LENGTH
-      // so it lines up with the existing collision radius / camera distance without
-      // needing to know the model's original units.
-      const box = new THREE.Box3().setFromObject(model);
-      const size = new THREE.Vector3();
-      box.getSize(size);
-      const longestSide = Math.max(size.x, size.z) || 1;
-      const autoScale = (CAR_TARGET_LENGTH / longestSide) * CAR_MODEL_SCALE;
-      model.scale.setScalar(autoScale);
-
-      // Re-center on X/Z and drop it so its lowest point sits on y = 0 (the carGroup origin)
-      const box2 = new THREE.Box3().setFromObject(model);
-      const center = new THREE.Vector3();
-      box2.getCenter(center);
-      model.position.x -= center.x;
-      model.position.z -= center.z;
-      model.position.y -= box2.min.y;
-
-      model.rotation.y = CAR_MODEL_YAW_OFFSET;
-
-      carGroup.add(model);
-      const msg = '[car.glb] loaded — original size: ' + size.x.toFixed(2) + 'x' + size.y.toFixed(2) + 'x' + size.z.toFixed(2) + ' | scale used: ' + autoScale.toFixed(3);
-      console.log(msg);
+  return new Promise((resolve) => {
+    if (typeof THREE.GLTFLoader === 'undefined') {
+      console.error('[car.glb] THREE.GLTFLoader is undefined — the loader script tag failed to load (check network/CDN access). Using box car fallback.');
       if (carStatusEl) {
-        carStatusEl.textContent = 'CAR: ✓ glb loaded (scale ' + autoScale.toFixed(2) + ')';
-        carStatusEl.style.color = '#00ff88';
-      }
-    },
-    (xhr) => {
-      if (carStatusEl && xhr.total) {
-        const pct = Math.round((xhr.loaded / xhr.total) * 100);
-        carStatusEl.textContent = 'CAR: loading car.glb... ' + pct + '%';
-      }
-    },
-    (err) => {
-      const msg = '[car.glb] FAILED to load — using box car fallback. ' + (err && err.message ? err.message : err);
-      console.error(msg, err);
-      if (carStatusEl) {
-        carStatusEl.textContent = 'CAR: ✗ glb FAILED — ' + (err && err.message ? err.message : 'see below');
+        carStatusEl.textContent = 'CAR: ✗ GLTFLoader script did not load (CDN blocked?)';
         carStatusEl.style.color = '#ff4444';
       }
       buildFallbackBoxCar(carGroup);
+      resolve();
+      return;
     }
-  );
+
+    const loader = new THREE.GLTFLoader();
+    loader.load(
+      'car.glb',
+      (gltf) => {
+        const model = gltf.scene;
+        model.traverse(child => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = false;
+          }
+        });
+
+        // Auto-scale: normalize the car's longest horizontal dimension to CAR_TARGET_LENGTH
+        // so it lines up with the existing collision radius / camera distance without
+        // needing to know the model's original units.
+        const box = new THREE.Box3().setFromObject(model);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const longestSide = Math.max(size.x, size.z) || 1;
+        const autoScale = (CAR_TARGET_LENGTH / longestSide) * CAR_MODEL_SCALE;
+        model.scale.setScalar(autoScale);
+
+        // Re-center on X/Z and drop it so its lowest point sits on y = 0 (the carGroup origin)
+        const box2 = new THREE.Box3().setFromObject(model);
+        const center = new THREE.Vector3();
+        box2.getCenter(center);
+        model.position.x -= center.x;
+        model.position.z -= center.z;
+        model.position.y -= box2.min.y;
+
+        model.rotation.y = CAR_MODEL_YAW_OFFSET;
+
+        carGroup.add(model);
+        const msg = '[car.glb] loaded — original size: ' + size.x.toFixed(2) + 'x' + size.y.toFixed(2) + 'x' + size.z.toFixed(2) + ' | scale used: ' + autoScale.toFixed(3);
+        console.log(msg);
+        if (carStatusEl) {
+          carStatusEl.textContent = 'CAR: ✓ glb loaded (scale ' + autoScale.toFixed(2) + ')';
+          carStatusEl.style.color = '#00ff88';
+        }
+        resolve();
+      },
+      (xhr) => {
+        if (carStatusEl && xhr.total) {
+          const pct = Math.round((xhr.loaded / xhr.total) * 100);
+          carStatusEl.textContent = 'CAR: loading car.glb... ' + pct + '%';
+          const loaderP = document.querySelector('#loader p');
+          if (loaderP) loaderP.textContent = 'LOADING CAR... ' + pct + '%';
+        }
+      },
+      (err) => {
+        const msg = '[car.glb] FAILED to load — using box car fallback. ' + (err && err.message ? err.message : err);
+        console.error(msg, err);
+        if (carStatusEl) {
+          carStatusEl.textContent = 'CAR: ✗ glb FAILED — ' + (err && err.message ? err.message : 'see below');
+          carStatusEl.style.color = '#ff4444';
+        }
+        buildFallbackBoxCar(carGroup);
+        resolve(); // still resolve — fallback box is ready, don't hang the loading screen forever
+      }
+    );
+  });
 }
 
 // Original procedural box car — used only if car.glb fails to load

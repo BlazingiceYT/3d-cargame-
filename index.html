@@ -704,7 +704,7 @@ let carGroup;
 
 // Tweak these two if the model looks wrong after it loads:
 const CAR_MODEL_SCALE       = 1.0;   // overall size multiplier on top of auto-scaling
-const CAR_MODEL_YAW_OFFSET  = 0;     // try Math.PI/2, Math.PI, or -Math.PI/2 if car faces the wrong way
+const CAR_MODEL_YAW_OFFSET  = Math.PI / 2;  // car's side was facing forward — rotated 90° to fix
 const CAR_TARGET_LENGTH     = 4.2;   // matches old box car's length, keeps physics/camera feel the same
 
 function buildPlayerCar() {

@@ -137,6 +137,7 @@
 <div id="hud-fps" style="display:none">60 FPS</div>
 <div id="hud-info" style="display:none">
   <div id="ai-info">AI: 0</div>
+  <div id="car-status" style="color:#ffcc00;margin-top:2px;font-size:9px;">CAR: loading car.glb...</div>
   <div style="color:#00ccff;margin-top:2px;font-size:9px;">WASD/ARROWS · N=NITRO</div>
 </div>
 
@@ -169,6 +170,7 @@ const speedoCanvas= document.getElementById('speedo-canvas');
 const speedoCtx   = speedoCanvas.getContext('2d');
 const fpsEl       = document.getElementById('hud-fps');
 const aiEl        = document.getElementById('ai-info');
+const carStatusEl = document.getElementById('car-status');
 const driftEl     = document.getElementById('drift-alert');
 const airEl       = document.getElementById('air-alert');
 const MM_SIZE     = 150;
@@ -710,6 +712,16 @@ function buildPlayerCar() {
   carGroup.position.set(0, 0, 15);
   scene.add(carGroup);
 
+  if (typeof THREE.GLTFLoader === 'undefined') {
+    console.error('[car.glb] THREE.GLTFLoader is undefined — the loader script tag failed to load (check network/CDN access). Using box car fallback.');
+    if (carStatusEl) {
+      carStatusEl.textContent = 'CAR: ✗ GLTFLoader script did not load (CDN blocked?)';
+      carStatusEl.style.color = '#ff4444';
+    }
+    buildFallbackBoxCar(carGroup);
+    return;
+  }
+
   const loader = new THREE.GLTFLoader();
   loader.load(
     'car.glb',
@@ -743,11 +755,26 @@ function buildPlayerCar() {
       model.rotation.y = CAR_MODEL_YAW_OFFSET;
 
       carGroup.add(model);
-      console.log('[car.glb] loaded — original size:', size, '| auto-scale used:', autoScale.toFixed(3));
+      const msg = '[car.glb] loaded — original size: ' + size.x.toFixed(2) + 'x' + size.y.toFixed(2) + 'x' + size.z.toFixed(2) + ' | scale used: ' + autoScale.toFixed(3);
+      console.log(msg);
+      if (carStatusEl) {
+        carStatusEl.textContent = 'CAR: ✓ glb loaded (scale ' + autoScale.toFixed(2) + ')';
+        carStatusEl.style.color = '#00ff88';
+      }
     },
-    undefined,
+    (xhr) => {
+      if (carStatusEl && xhr.total) {
+        const pct = Math.round((xhr.loaded / xhr.total) * 100);
+        carStatusEl.textContent = 'CAR: loading car.glb... ' + pct + '%';
+      }
+    },
     (err) => {
-      console.error('[car.glb] failed to load — falling back to box car. Check the filename/case and that it sits next to index.html.', err);
+      const msg = '[car.glb] FAILED to load — using box car fallback. ' + (err && err.message ? err.message : err);
+      console.error(msg, err);
+      if (carStatusEl) {
+        carStatusEl.textContent = 'CAR: ✗ glb FAILED — ' + (err && err.message ? err.message : 'see below');
+        carStatusEl.style.color = '#ff4444';
+      }
       buildFallbackBoxCar(carGroup);
     }
   );
